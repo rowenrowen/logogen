@@ -12,14 +12,13 @@ RUN npm ci
 COPY . .
 
 # Install Linux vtracer (x86_64 musl) into /app/bin/vtracer
-# NOTE: pin version here if you want; if this tag doesn't exist, the build will fail clearly.
 ARG VTRACER_TAG=0.6.4
 RUN set -eux; \
   mkdir -p /app/bin; \
   url="https://github.com/visioncortex/vtracer/releases/download/${VTRACER_TAG}/vtracer-x86_64-unknown-linux-musl.tar.gz"; \
   echo "Downloading $url"; \
   curl -fL --retry 3 --retry-delay 2 -o /tmp/vtracer.tgz "$url"; \
-  file /tmp/vtracer.tgz | grep -i 'gzip' ; \
+  tar -tzf /tmp/vtracer.tgz >/dev/null; \
   tar -xzf /tmp/vtracer.tgz -C /tmp; \
   mv /tmp/vtracer-*/vtracer /app/bin/vtracer; \
   chmod +x /app/bin/vtracer; \
