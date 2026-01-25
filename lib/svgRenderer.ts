@@ -272,9 +272,15 @@ function parsePathBoundingBox(pathData: string): { minX: number; minY: number; m
  * Explicitly excludes text and background elements.
  */
 function renderShape(shape: Shape, index: number, strokeStyle?: { enabled: boolean; width: number; color: string; linecap?: string; linejoin?: string } | null): string {
-  // STRICT TEXT REJECTION: Explicitly reject text elements
-  if (shape.type === 'text' || (shape as any).text !== undefined) {
+  // STRICT TEXT REJECTION: Explicitly reject text elements using runtime-safe checks
+  const shapeAny = shape as any;
+  if ("text" in shapeAny && shapeAny.text != null) {
     throw new Error(`Shape ${index}: Text elements are not allowed`);
+  }
+  
+  // Check for text-related properties (fontSize, fontFamily, etc.)
+  if ("fontSize" in shapeAny || "fontFamily" in shapeAny || "font" in shapeAny) {
+    throw new Error(`Shape ${index}: Shape contains text-related properties - text is not allowed`);
   }
   
   // Additional defensive check: reject if shape type is not in allowed list
@@ -283,7 +289,7 @@ function renderShape(shape: Shape, index: number, strokeStyle?: { enabled: boole
     throw new Error(`Shape ${index}: Invalid shape type "${shape.type}". Only geometric shapes allowed, no text.`);
   }
   
-  // Check for text-like properties in shape
+  // Check for text-like properties in shape (string-based check)
   const shapeString = JSON.stringify(shape).toLowerCase();
   const textIndicators = ['name', 'wordmark', 'text', 'letters', 'initials', 'typography', 'font'];
   if (textIndicators.some(indicator => shapeString.includes(indicator))) {
