@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
-import { generateSvgFromPrompt, GenerateSvgParams } from '@/lib/generateSvg';
+import { generateSvgFromPrompt, GenerateSvgParams } from '/lib/generateSvg';
 
 // Process-level error handlers for TDZ debugging
 process.on("uncaughtException", (err) => {

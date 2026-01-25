@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { generateSvgFromPng } from "@/lib/generateSvg";
+import { generateSvgFromPng } from "/lib/generateSvg";
 
 export async function GET() {
   try {
