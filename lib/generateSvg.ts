@@ -1,12 +1,12 @@
 import OpenAI from 'openai';
-import { runQCChecks } from '@/lib/qc';
-import { preprocessToWhitePng, validateImageBuffer, validateBase64 } from '@/lib/preprocessImage';
-import { extractPalette } from '@/lib/extractPalette';
-import { vectorizeWithVtracer } from '@/lib/vectorizeWithVtracer';
-import { parsePrompt, ParsedPrompt } from '@/lib/parsePrompt';
-import { applyShapeMask } from '@/lib/applyShapeMask';
-import { enforceShapeInSvg } from '@/lib/enforceShapeInSvg';
-import { preprocessForVectorize } from '@/lib/preprocessForVectorize';
+import { runQCChecks } from "./qc";
+import { preprocessToWhitePng, validateImageBuffer, validateBase64 } from "./preprocessImage";
+import { extractPalette } from "./extractPalette";
+import { vectorizeWithVtracer } from "./vectorizeWithVtracer";
+import { parsePrompt, ParsedPrompt } from "./parsePrompt";
+import { applyShapeMask } from "./applyShapeMask";
+import { enforceShapeInSvg } from "./enforceShapeInSvg";
+import { preprocessForVectorize } from "./preprocessForVectorize";
 import sharp from "sharp";
 
 export async function generateSvgFromPng(
