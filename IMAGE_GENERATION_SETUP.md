@@ -17,9 +17,8 @@ The system generates logos using:
 - `@neplex/vectorizer` - Raster to SVG conversion (VTracer-based)
 
 **Note**: If `@neplex/vectorizer` is not available, consider alternatives:
-- `vtracer` (Node.js bindings)
+- `vtracer` (Node.js bindings or CLI)
 - `imagetracerjs` (JavaScript-based)
-- `potrace` (via bindings)
 
 ### Installation
 ```bash
