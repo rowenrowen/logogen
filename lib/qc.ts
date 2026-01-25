@@ -1,9 +1,5 @@
 import sharp from 'sharp';
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { getOpenAIClient } from './openaiClient';
 
 export interface QCCheckResult {
   pass: boolean;
@@ -190,6 +186,7 @@ export async function checkWhitespace(processedPng: Buffer): Promise<QCCheckResu
 export async function checkNoText(imageBase64: string): Promise<QCCheckResult> {
   try {
     // Use OpenAI vision to detect text
+    const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini', // Use mini for cost efficiency
       messages: [

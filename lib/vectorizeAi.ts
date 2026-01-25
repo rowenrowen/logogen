@@ -1,8 +1,4 @@
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { getOpenAIClient } from './openaiClient';
 
 /**
  * Vectorizes a PNG image to SVG using OpenAI vision API.
@@ -24,6 +20,7 @@ Requirements:
   // Call OpenAI vision model (use gpt-4o or equivalent)
   const visionModel = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
   
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
     model: visionModel,
     messages: [

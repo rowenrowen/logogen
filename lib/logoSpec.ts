@@ -1,9 +1,5 @@
-import OpenAI from 'openai';
+import { getOpenAIClient } from './openaiClient';
 import { RawLogoSpec, MotifBlueprint } from '@/types/logo';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 // In-memory cache for motif hints (keyed by prompt|industry|shape|style|colorMode)
 const motifHintsCache = new Map<string, string>();
@@ -160,6 +156,7 @@ Therapy industry alignment:
 - Soft curves, balanced whitespace
 - No aggressive or harsh elements`;
 
+      const openai = getOpenAIClient();
       const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
@@ -237,6 +234,7 @@ Examples:
 Return ONLY the motif hint text, nothing else.`;
 
   try {
+    const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -503,6 +501,7 @@ Example for "a mountain logo" (professional geometric approach):
 Remember: Create professional, brand-ready marks with geometric construction, clear hierarchy, and restrained palettes.`;
 
   try {
+    const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: 'gpt-4.1-mini',
       messages: [

@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { getOpenAIClient } from "./openaiClient";
 import { runQCChecks } from "./qc";
 import { preprocessToWhitePng, validateImageBuffer, validateBase64 } from "./preprocessImage";
 import { extractPalette } from "./extractPalette";
@@ -45,10 +45,6 @@ export async function generateSvgFromPng(
 
   return svg;
 }
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const MAX_TRIES = 5;
 
@@ -369,6 +365,7 @@ export async function generateSvgFromPrompt(
       console.log(`images.generate: model=${imageModel}, output_format=${generateParams.output_format}, size=${generateParams.size}`);
 
       // Generate image
+      const openai = getOpenAIClient();
       const response = await openai.images.generate(generateParams);
 
       // Extract base64 from response (handle both possible field names)

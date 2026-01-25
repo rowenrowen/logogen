@@ -1,9 +1,5 @@
-import OpenAI from 'openai';
+import { getOpenAIClient } from './openaiClient';
 import { FilledGeometricParams, RadialSunburstParams } from './templates';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 export type LogoFamily = 'auto' | 'filled-geometric' | 'radial-sunburst';
 
@@ -84,6 +80,7 @@ Return JSON in this exact format:
 }`;
 
   try {
+    const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
