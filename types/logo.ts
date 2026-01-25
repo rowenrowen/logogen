@@ -63,6 +63,7 @@ export interface LogoSpec {
   strokeStyle?: StrokeStyle | null; // Optional global stroke styling
   metadata?: {
     description?: string;
+    [key: string]: any; // Allow additional debug fields (e.g., detailCueInjected)
   };
 }
 
