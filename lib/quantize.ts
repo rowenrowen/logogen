@@ -1,4 +1,3 @@
-import quantize from 'quantize';
 import sharp from 'sharp';
 
 export interface RGB {
@@ -8,7 +7,7 @@ export interface RGB {
 }
 
 /**
- * Quantizes a PNG image to a limited color palette.
+ * Quantizes a PNG image to a limited color palette using sharp-based sampling.
  * 
  * @param pngBuffer - PNG image buffer
  * @param maxColors - Maximum number of colors in palette (1-256)
@@ -26,61 +25,84 @@ export async function quantizeToPalette(
 
   const { width, height, channels } = info;
 
-  // Extract RGB pixels (ignore alpha)
-  const pixels: number[][] = [];
+  // Sample pixels and bucket colors (round to nearest 16 to reduce noise)
+  const colorBuckets = new Map<string, { r: number; g: number; b: number; count: number }>();
+  const sampleStep = 8; // Sample every 8th pixel for efficiency
+
+  for (let i = 0; i < data.length; i += channels * sampleStep) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+
+    // Ignore near-white pixels (r,g,b > 245)
+    if (r > 245 && g > 245 && b > 245) {
+      continue;
+    }
+
+    // Bucket by rounding channels to nearest 16
+    const bucketR = Math.round(r / 16) * 16;
+    const bucketG = Math.round(g / 16) * 16;
+    const bucketB = Math.round(b / 16) * 16;
+    const bucketKey = `${bucketR},${bucketG},${bucketB}`;
+
+    if (colorBuckets.has(bucketKey)) {
+      const bucket = colorBuckets.get(bucketKey)!;
+      // Update average color (weighted by count)
+      const totalCount = bucket.count + 1;
+      bucket.r = Math.round((bucket.r * bucket.count + r) / totalCount);
+      bucket.g = Math.round((bucket.g * bucket.count + g) / totalCount);
+      bucket.b = Math.round((bucket.b * bucket.count + b) / totalCount);
+      bucket.count = totalCount;
+    } else {
+      colorBuckets.set(bucketKey, { r, g, b, count: 1 });
+    }
+  }
+
+  // Sort by frequency and take top maxColors
+  const sortedBuckets = Array.from(colorBuckets.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, maxColors);
+
+  // Build palette
+  const palette: RGB[] = sortedBuckets.map(bucket => ({
+    r: bucket.r,
+    g: bucket.g,
+    b: bucket.b,
+  }));
+
+  // If no colors found (all white), add a default dark color
+  if (palette.length === 0) {
+    palette.push({ r: 17, g: 24, b: 39 }); // Default dark gray
+  }
+
+  // Create indexed image (each pixel is an index into the palette)
+  const indexed = new Uint8Array(width * height);
   for (let i = 0; i < data.length; i += channels) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-    pixels.push([r, g, b]);
-  }
 
-  // Quantize using median cut algorithm
-  const colorMap = quantize(pixels, maxColors);
+    // Find nearest palette color
+    let minDist = Infinity;
+    let bestIndex = 0;
 
-  if (!colorMap) {
-    throw new Error('Quantization failed');
-  }
+    for (let j = 0; j < palette.length; j++) {
+      const pr = palette[j].r;
+      const pg = palette[j].g;
+      const pb = palette[j].b;
+      const dr = r - pr;
+      const dg = g - pg;
+      const db = b - pb;
+      const dist = dr * dr + dg * dg + db * db;
 
-  // Get palette
-  const palette: RGB[] = [];
-  const paletteSize = colorMap.size();
-  for (let i = 0; i < paletteSize; i++) {
-    const [r, g, b] = colorMap.palette()[i];
-    palette.push({ r: Math.round(r), g: Math.round(g), b: Math.round(b) });
-  }
-
-  // Create indexed image (each pixel is an index into the palette)
-  // Use nearest-color assignment if colorMap.map doesn't work correctly
-  const indexed = new Uint8Array(width * height);
-  for (let i = 0; i < pixels.length; i++) {
-    const [r, g, b] = pixels[i];
-    
-    // Try colorMap.map first
-    let index = colorMap.map([r, g, b]);
-    
-    // If that fails or returns invalid, use nearest-color search
-    if (index === undefined || index < 0 || index >= paletteSize) {
-      let minDist = Infinity;
-      let bestIndex = 0;
-      
-      for (let j = 0; j < paletteSize; j++) {
-        const [pr, pg, pb] = colorMap.palette()[j];
-        const dr = r - pr;
-        const dg = g - pg;
-        const db = b - pb;
-        const dist = dr * dr + dg * dg + db * db;
-        
-        if (dist < minDist) {
-          minDist = dist;
-          bestIndex = j;
-        }
+      if (dist < minDist) {
+        minDist = dist;
+        bestIndex = j;
       }
-      
-      index = bestIndex;
     }
-    
-    indexed[i] = index;
+
+    const pixelIndex = Math.floor(i / channels);
+    indexed[pixelIndex] = bestIndex;
   }
 
   return {
