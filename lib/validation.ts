@@ -45,8 +45,9 @@ export function validateLogoSpec(spec: LogoSpec): ValidationResult {
       errors.push(`Shape ${index}: Invalid type "${shape.type}"`);
     }
 
-    // Check for typography (no text elements)
-    if (shape.type === 'text' || (shape as any).text) {
+    // Check for typography (no text elements) using runtime-safe checks
+    const anyShape = shape as any;
+    if (anyShape?.text != null || anyShape?.fontSize != null || anyShape?.fontFamily != null || anyShape?.font != null) {
       errors.push(`Shape ${index}: Typography not allowed (found text element)`);
     }
 
