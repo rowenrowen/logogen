@@ -19,6 +19,14 @@ RUN mkdir -p /app/bin \
  && chmod +x /app/bin/vtracer \
  && /app/bin/vtracer --help >/dev/null
 
+RUN pwd && ls -la
+RUN ls -la /app/lib || true
+RUN ls -la /app/src/lib || true
+RUN node -p "require('fs').existsSync('/app/lib/generateSvg.ts')"
+RUN node -p "require('fs').existsSync('/app/src/lib/generateSvg.ts')"
+RUN cat /app/tsconfig.json || true
+RUN cat /app/jsconfig.json || true
+
 RUN npm run build
 
 ENV NODE_ENV=production
