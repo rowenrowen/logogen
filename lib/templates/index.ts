@@ -56,36 +56,36 @@ export function renderFilledGeometric(
   const baseSize = 70;
   
   // ENFORCE specific rotation patterns per style (not random)
-  const rotationPatterns: number[][] = {
+  const rotationPatterns: Record<string, number[]> = {
     minimal: [-18, 18],
     balanced: [-22, 0, 22],
     intricate: [-26, -8, 10, 28],
   };
-  const rotations = rotationPatterns[style as keyof typeof rotationPatterns] || rotationPatterns.balanced;
+  const rotations = rotationPatterns[style] || rotationPatterns.balanced;
   
   // ENFORCE translation offsets per layer (so edges reveal)
-  const offsetPatterns: Array<[number, number]>[] = {
+  const offsetPatterns: Record<string, Array<[number, number]>> = {
     minimal: [[-4, -2], [4, 2]],
     balanced: [[-4, -2], [-2, 2], [4, -1]],
     intricate: [[-4, -2], [-2, 2], [2, 3], [4, -1]],
   };
-  const offsets = offsetPatterns[style as keyof typeof offsetPatterns] || offsetPatterns.balanced;
+  const offsets = offsetPatterns[style] || offsetPatterns.balanced;
   
   // ENFORCE varied corner radius per layer (base: 18-24, mid: 14-18, top: 10-14)
-  const cornerRadiusPatterns: number[][] = {
+  const cornerRadiusPatterns: Record<string, number[]> = {
     minimal: [22, 14], // base, top
     balanced: [22, 16, 12], // base, mid, top
     intricate: [24, 18, 14, 10], // base, mid, mid, top
   };
-  const cornerRadii = cornerRadiusPatterns[style as keyof typeof cornerRadiusPatterns] || cornerRadiusPatterns.balanced;
+  const cornerRadii = cornerRadiusPatterns[style] || cornerRadiusPatterns.balanced;
   
   // ENFORCE size differences (each layer visibly smaller)
-  const sizeScales: number[][] = {
+  const sizeScales: Record<string, number[]> = {
     minimal: [1.0, 0.70], // base, top
     balanced: [1.0, 0.75, 0.55], // base, mid, top
     intricate: [1.0, 0.80, 0.65, 0.50], // base, mid, mid, top
   };
-  const scales = sizeScales[style as keyof typeof sizeScales] || sizeScales.balanced;
+  const scales = sizeScales[style] || sizeScales.balanced;
   
   // ENFORCE palette usage: ensure at least 2 distinct colors used
   const colorIndices: number[] = [];
