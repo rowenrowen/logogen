@@ -20,7 +20,7 @@ RUN set -eux; \
   curl -fL --retry 3 --retry-delay 2 -o /tmp/vtracer.tgz "$url"; \
   tar -tzf /tmp/vtracer.tgz >/dev/null; \
   tar -xzf /tmp/vtracer.tgz -C /tmp; \
-  mv /tmp/vtracer-*/vtracer /app/bin/vtracer; \
+  mv /tmp/vtracer /app/bin/vtracer; \
   chmod +x /app/bin/vtracer; \
   /app/bin/vtracer --help >/dev/null
 
