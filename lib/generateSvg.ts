@@ -53,7 +53,6 @@ export interface GenerateSvgParams {
   style?: string;
   paletteChoice: string;
   shape?: string;
-  value?: 'hybrid' | 'filled' | 'outlined';
   businessName?: string;
   fontFamily?: 'Inter' | 'Lora' | 'Larken';
   gallerySvgs?: string[];
@@ -67,7 +66,6 @@ export interface GeneratePngResult {
     style: string;
     palette: string;
     shape: string;
-    value?: 'hybrid' | 'filled' | 'outlined';
     attempts: number;
     qcReasons: string[];
   };
@@ -84,7 +82,6 @@ export interface GenerateSvgResult {
     palette: string;
     shape: string;
     shapeReceived?: string; // Debug: shape value received
-    value?: 'hybrid' | 'filled' | 'outlined'; // Value rendering style
     attempts: number;
     qcReasons: string[];
     similarityScore: number;
@@ -131,10 +128,9 @@ function buildImagePrompt(
     style: string;
     palette: string;
     shape: string;
-    value: string;
   }
 ): string {
-  const { style, palette, shape, value } = options;
+  const { style, palette, shape } = options;
 
   // Base constraints for ALL palettes
   let imagePrompt = `Single logo icon only. ONE cohesive icon mark only. No scattered elements. `;
@@ -146,46 +142,48 @@ function buildImagePrompt(
   imagePrompt += `Centered, generous white padding around the icon, vector-like flat design, modern professional. `;
   imagePrompt += `No mockups, no scene, no objects outside the logo. `;
 
-  // Determine max colors based on palette
-  let paletteMaxColors = 4; // default
-  if (palette === 'monochrome' || palette === 'black_white') {
-    paletteMaxColors = 2;
-  } else if (palette === 'complementary') {
-    paletteMaxColors = 3;
-  } else if (palette === 'analogous') {
-    paletteMaxColors = 4;
+  // Palette constraints (skip if "any")
+  if (palette !== 'any') {
+    // Determine max colors based on palette
+    let paletteMaxColors = 4; // default
+    if (palette === 'monochrome' || palette === 'black_white') {
+      paletteMaxColors = 2;
+    } else if (palette === 'complementary') {
+      paletteMaxColors = 3;
+    } else if (palette === 'analogous') {
+      paletteMaxColors = 4;
+    } else {
+      paletteMaxColors = 4;
+    }
+
+    // General palette constraints
+    imagePrompt += `Use a limited palette of 2–${paletteMaxColors} colors maximum (unless monochrome/black_white). `;
+    imagePrompt += `No random extra accent colors. `;
+
+    // Palette-specific constraints (high-level direction, not rigid mapping)
+    if (palette === 'warm') {
+      imagePrompt += `Color palette: warm and modern (terracotta, amber, deep navy, warm oranges, golden yellows). `;
+    } else if (palette === 'cool') {
+      imagePrompt += `Color palette: cool and fresh (ocean blues, teals, mint greens, cool grays). `;
+    } else if (palette === 'neutral') {
+      imagePrompt += `Color palette: neutral and sophisticated (grays, beiges, soft browns, muted tones). `;
+    } else if (palette === 'complementary') {
+      imagePrompt += `Color palette: complementary colors with high clarity and contrast (e.g., blue/orange, purple/yellow). `;
+    } else if (palette === 'pastel') {
+      imagePrompt += `Color palette: pastel tones (soft pinks, light blues, gentle purples, muted pastels). `;
+    } else if (palette === 'bold') {
+      imagePrompt += `Color palette: bold and vibrant (saturated colors, high contrast, energetic hues). `;
+    }
+    
+    // Common color constraints
+    imagePrompt += `Flat vector logo mark, 2–4 solid colors, no gradients, no shadows, white background. `;
   } else {
-    paletteMaxColors = 4;
-  }
-
-  // General palette constraints
-  imagePrompt += `Use a limited palette of 2–${paletteMaxColors} colors maximum (unless monochrome/black_white). `;
-  imagePrompt += `No random extra accent colors. `;
-  imagePrompt += `No text. `;
-  imagePrompt += `White background only. `;
-  imagePrompt += `Single logo icon only. `;
-
-  // Palette-specific constraints
-  if (palette === 'any') {
-    imagePrompt += `Choose a professional palette that fits the prompt. `;
-  } else if (palette === 'monochrome') {
-    imagePrompt += `ONE ink color only + white background. No gradients. No additional colors. `;
-  } else if (palette === 'black_white') {
-    imagePrompt += `Black and white only. No gray tones. Strict binary palette. `;
-  } else if (palette === 'warm') {
-    imagePrompt += `Warm palette only: reds, oranges, yellows. No blues, teals, or cool colors. `;
-  } else if (palette === 'cool') {
-    imagePrompt += `Cool palette only: blues, teals, greens. No reds, oranges, or warm colors. `;
-  } else if (palette === 'complementary') {
-    imagePrompt += `Two main complementary colors + optional neutral. High clarity and contrast. `;
-  } else if (palette === 'analogous') {
-    imagePrompt += `2–3 neighboring hues only + optional neutral. Harmonious color scheme. `;
-  } else if (palette === 'earth') {
-    imagePrompt += `Earth tones: olive, tan, clay, slate. No neon colors. Natural palette. `;
-  } else if (palette === 'pastel') {
-    imagePrompt += `Pastel tones only. Soft saturation, gentle colors. No vibrant hues. `;
-  } else if (palette === 'neon') {
-    imagePrompt += `Neon palette, high saturation, but still clean logo mark. Bright and vivid. `;
+    // When palette is "any", model chooses best-fitting colors for the concept
+    // No user-imposed palette family; still colorful and professional
+    imagePrompt += `Choose a harmonious, brand-appropriate color palette that fits the concept. `;
+    imagePrompt += `Use 2–4 flat colors with good contrast. `;
+    imagePrompt += `Avoid monochrome or all-black. `;
+    imagePrompt += `Flat vector logo mark, no gradients, no shadows, white background. `;
   }
 
   // Add negative constraints if any negatives specified
@@ -199,39 +197,38 @@ function buildImagePrompt(
     }
   }
 
-  // Shape composition constraints (compositional, not badge-based)
-  if (shape === 'circle') {
-    imagePrompt += `Compose the icon in a circular composition: elements arranged around a central point or radiating, overall silhouette reads circular WITHOUT adding a circle badge. `;
-    imagePrompt += `No outer frame, no enclosing circle outline—just a naturally circular silhouette. `;
-    imagePrompt += `Do NOT draw an explicit container/badge/frame. The logo itself should naturally form this silhouette. `;
-  } else if (shape === 'square') {
-    imagePrompt += `Compose the icon in a square/rectilinear composition: strong horizontal/vertical structure, overall silhouette reads square/boxy WITHOUT adding a square badge. `;
-    imagePrompt += `Do NOT draw an explicit container/badge/frame. The logo itself should naturally form this silhouette. `;
-  } else if (shape === 'roundedSquare') {
-    imagePrompt += `Compose with softened corners/rounded geometry; silhouette reads rounded-square, but no enclosing rounded-rectangle badge. `;
-    imagePrompt += `Do NOT draw an explicit container/badge/frame. The logo itself should naturally form this silhouette. `;
-  } else if (shape === 'pill') {
-    imagePrompt += `Compose in a horizontal pill/oval composition; silhouette reads pill-shaped, but no enclosing pill badge. `;
-    imagePrompt += `Do NOT draw an explicit container/badge/frame. The logo itself should naturally form this silhouette. `;
-  } else if (shape === 'hex') {
-    imagePrompt += `Compose in a hexagonal composition; silhouette reads hexagonal, but no enclosing hexagon badge. `;
-    imagePrompt += `Do NOT draw an explicit container/badge/frame. The logo itself should naturally form this silhouette. `;
-  } else if (shape === 'shield') {
-    imagePrompt += `Compose in a shield composition; silhouette reads shield-shaped, but no enclosing shield badge. `;
-    imagePrompt += `Do NOT draw an explicit container/badge/frame. The logo itself should naturally form this silhouette. `;
-  }
-
-  // Value control (rendering style)
-  if (value === 'outlined') {
-    imagePrompt += `Outlined logo style: strokes/lines only. No filled regions. Use clean, consistent stroke widths. `;
-    imagePrompt += `Use colored strokes permitted by palette; background pure white. `;
-    imagePrompt += `Avoid shading, gradients, textures. `;
-    imagePrompt += `Ensure the icon is still bold enough to read at small size. `;
-  } else if (value === 'filled') {
-    imagePrompt += `Filled logo style: solid filled shapes only. No visible outlines/strokes. `;
-    imagePrompt += `Flat vector fills, clean edges, no texture. `;
-  } else if (value === 'hybrid') {
-    imagePrompt += `Hybrid: allow both fills and strokes where appropriate, but keep it clean and logo-like. `;
+  // Shape composition constraints (only if shape is not 'any')
+  if (shape !== 'any') {
+    // General shape rules for all non-"any" shapes
+    imagePrompt += `Design a unified badge logo mark. `;
+    imagePrompt += `The outer silhouette must be a perfect ${shape === 'circle' ? 'circle (roundel)' : shape === 'square' ? 'square' : shape === 'roundedSquare' ? 'rounded square with ~20–25% corner radius' : shape === 'hex' ? 'hexagon' : 'shield'}. `;
+    imagePrompt += `Use a solid filled shape field (background) as part of the design so the silhouette reads clearly. `;
+    imagePrompt += `Place the icon elements INSIDE the shape using contrasting colors and/or knockouts. `;
+    imagePrompt += `The design should fill ~85–95% of the canvas with small optical margin. `;
+    imagePrompt += `No detached border frame; no thin outline ring; no icon floating inside a container. `;
+    
+    // Shape-specific details
+    if (shape === 'circle') {
+      imagePrompt += `Outer silhouette is a perfect circle (roundel), solid filled circle background. `;
+    } else if (shape === 'square') {
+      imagePrompt += `Outer silhouette is a perfect square, solid filled square background. `;
+    } else if (shape === 'roundedSquare') {
+      imagePrompt += `Outer silhouette is rounded square with ~20–25% corner radius, solid filled background. `;
+    } else if (shape === 'hex') {
+      imagePrompt += `Outer silhouette is the chosen badge shape, solid filled background. `;
+    } else if (shape === 'shield') {
+      imagePrompt += `Outer silhouette is the chosen badge shape, solid filled background. `;
+    }
+    
+    // Negative constraints for shapes
+    imagePrompt += `No floating icon, no border-only outline, no thin ring, no sticker frame, no empty background inside the shape. `;
+    
+    // Composition hint
+    imagePrompt += `Use 2–4 flat colors, high contrast between background field and icon elements. `;
+    imagePrompt += `The background field must be visibly colored (not white) unless the palette explicitly requires otherwise. `;
+    
+    // White outer canvas background
+    imagePrompt += `White page background, badge centered. `;
   }
 
   // Style guidance
@@ -311,7 +308,6 @@ export async function generatePngFromPrompt(
     style = 'balanced',
     paletteChoice,
     shape = 'any',
-    value = 'hybrid',
     gallerySvgs = [],
   } = params;
 
@@ -333,7 +329,6 @@ export async function generatePngFromPrompt(
     style,
     palette: paletteChoice,
     shape,
-    value,
   });
 
   // Try generation with QC checks (up to MAX_TRIES)
@@ -440,7 +435,6 @@ export async function generatePngFromPrompt(
           style,
           palette: paletteChoice,
           shape,
-          value,
           attempts,
           qcReasons: qcResult.reasons,
         },
@@ -470,7 +464,6 @@ export async function generateSvgFromPrompt(
     style = 'balanced',
     paletteChoice,
     shape = 'any',
-    value = 'hybrid',
     businessName,
     gallerySvgs = [],
   } = params;
@@ -493,7 +486,6 @@ export async function generateSvgFromPrompt(
     style,
     palette: paletteChoice,
     shape,
-    value,
   });
 
   // Try generation with QC checks and similarity screening (up to MAX_TRIES)
@@ -636,7 +628,7 @@ export async function generateSvgFromPrompt(
           console.log(`Applying safety containment clip for ${shape} shape...`);
           maskedPng = await applyShapeMask(
             preprocessedPng,
-            shape as 'circle' | 'square' | 'roundedSquare' | 'pill' | 'hex' | 'shield',
+            shape as 'circle' | 'square' | 'roundedSquare' | 'hex' | 'shield',
             'clip' // Only clip, no badge/outline
           );
           console.log('Safety containment clip applied');
@@ -664,7 +656,7 @@ export async function generateSvgFromPrompt(
           console.log(`Applying safety containment clip for ${shape} shape in SVG...`);
           svg = enforceShapeInSvg(
             svg,
-            shape as 'circle' | 'square' | 'roundedSquare' | 'pill' | 'hex' | 'shield',
+            shape as 'circle' | 'square' | 'roundedSquare' | 'hex' | 'shield',
             'clip' // Only clip, no badge/outline
           );
           console.log('SVG containment clip applied');
@@ -757,7 +749,6 @@ export async function generateSvgFromPrompt(
           palette: paletteChoice,
           shape,
           shapeReceived: shape, // Debug: shape value received
-          value, // Value rendering style
           attempts,
           qcReasons: qcResult.reasons,
           similarityScore: maxSimilarity,

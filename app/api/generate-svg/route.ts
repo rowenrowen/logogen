@@ -39,14 +39,12 @@ export async function GET(request: NextRequest) {
     console.log('GET paletteChoice=', paletteChoice);
 
     const shape = searchParams.get('shape') ?? 'any';
-    const value = (searchParams.get('value') ?? 'hybrid') as 'hybrid' | 'filled' | 'outlined';
     
     const params: GenerateSvgParams = {
       prompt,
       style: searchParams.get('style') || undefined,
       paletteChoice,
       shape,
-      value,
       businessName: searchParams.get('businessName') || undefined,
       // Note: gallerySvgs not available in GET (would need to be passed as query param array)
     };
@@ -94,7 +92,7 @@ export async function POST(request: NextRequest) {
     console.log('POST request received, parsing JSON...');
     const body = await request.json();
     console.log("GENERATE BODY", body);
-        const { prompt, style, palette, shape, value, businessName, fontFamily, gallerySvgs } = body;
+        const { prompt, style, palette, shape, businessName, fontFamily, gallerySvgs } = body;
     console.log('POST extracted prompt:', prompt, 'type:', typeof prompt, 'length:', prompt?.length);
 
     if (!prompt || typeof prompt !== 'string') {
@@ -108,7 +106,6 @@ export async function POST(request: NextRequest) {
     // Declare paletteChoice at the top BEFORE any usage
     const paletteChoice = palette ?? 'any';
     const shapeValue = shape ?? 'any';
-    const valueParam = value ?? 'hybrid';
     console.log('POST paletteChoice=', paletteChoice);
 
     const params: GenerateSvgParams = {
@@ -116,7 +113,6 @@ export async function POST(request: NextRequest) {
       style,
       paletteChoice,
       shape: shapeValue,
-      value: valueParam,
       businessName,
       fontFamily: (fontFamily || 'Inter') as 'Inter' | 'Lora' | 'Larken',
       gallerySvgs: Array.isArray(gallerySvgs) ? gallerySvgs : [],

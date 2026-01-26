@@ -10,29 +10,31 @@ interface CurrentLogo {
   style: string;
   palette: string;
   shape: string;
-  value?: 'hybrid' | 'filled' | 'outlined';
   createdAt: string;
 }
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [style, setStyle] = useState<'minimal' | 'balanced' | 'intricate'>('balanced');
-  const [palette, setPalette] = useState<'any' | 'monochrome' | 'warm' | 'cool' | 'complementary' | 'analogous' | 'earth' | 'pastel' | 'neon' | 'black_white'>('any');
-  const [shape, setShape] = useState<'any' | 'circle' | 'square' | 'roundedSquare' | 'pill' | 'hex' | 'shield'>('any');
-  const [value, setValue] = useState<'hybrid' | 'filled' | 'outlined'>('hybrid');
-  const [fontFamily, setFontFamily] = useState<'Inter' | 'Lora' | 'Larken'>('Inter');
+  const [shape, setShape] = useState<'any' | 'circle' | 'square' | 'roundedSquare' | 'hex' | 'shield'>('any');
+  const [palette, setPalette] = useState<'any' | 'warm' | 'cool' | 'neutral' | 'complementary' | 'pastel' | 'bold'>('any');
   const [businessName, setBusinessName] = useState('');
+  
+  // Results state
+  const [iconPngBase64, setIconPngBase64] = useState<string | null>(null);
+  const [lockupInterPng, setLockupInterPng] = useState<string | null>(null);
+  const [lockupLoraPng, setLockupLoraPng] = useState<string | null>(null);
+  const [lockupLarkenPng, setLockupLarkenPng] = useState<string | null>(null);
+  // Store unframed lockups for download
+  const [lockupInterUnframed, setLockupInterUnframed] = useState<string | null>(null);
+  const [lockupLoraUnframed, setLockupLoraUnframed] = useState<string | null>(null);
+  const [lockupLarkenUnframed, setLockupLarkenUnframed] = useState<string | null>(null);
   const [currentLogo, setCurrentLogo] = useState<CurrentLogo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState<'Idle' | 'Generating icon' | 'Checking background' | 'Checking text' | 'Done'>('Idle');
-  const [iconPngBase64, setIconPngBase64] = useState<string | null>(null);
   const [meta, setMeta] = useState<any | null>(null);
-  // Lockup PNG state (stacked only)
-  const [lockupPng, setLockupPng] = useState<string | null>(null);
-  const [lockupPngLogicalSize, setLockupPngLogicalSize] = useState<{ width: number; height: number } | null>(null);
-  const [framedLockupPng, setFramedLockupPng] = useState<string | null>(null);
 
   // Device pixel ratio for high-quality rendering
   const DPR = 2;
@@ -404,29 +406,30 @@ export default function Home() {
     return canvas.toDataURL('image/png');
   };
 
-  // Generate lockup PNG when businessName or icon changes
+  // Generate 3 lockups (Inter/Lora/Larken) when businessName or icon changes
   useEffect(() => {
     if (!businessName.trim() || !iconPngBase64) {
-      setLockupPng(null);
-      setLockupPngLogicalSize(null);
-      setFramedLockupPng(null);
+      setLockupInterPng(null);
+      setLockupLoraPng(null);
+      setLockupLarkenPng(null);
+      setLockupInterUnframed(null);
+      setLockupLoraUnframed(null);
+      setLockupLarkenUnframed(null);
       return;
     }
 
-    const generateLockup = async () => {
+    const generateLockups = async () => {
       try {
         // Trim white padding from icon
         const trimmedIcon = await trimWhitePaddingFromPng(iconPngBase64);
 
-        // Estimate text height to calculate icon dimensions first
-        // Single line: fontSize * lineHeight, two lines: fontSize * lineHeight * 2
+        // Estimate text height
         const fontSizePx = 36;
         const lineHeight = Math.round(fontSizePx * 1.15);
         const paddingY = 10;
-        // Estimate: assume 1-2 lines, use average
         const estimatedTextH = lineHeight * 1.5 + paddingY * 2;
 
-        // Calculate icon dimensions based on estimated text height
+        // Calculate icon dimensions
         const targetIconH = Math.max(
           estimatedTextH * 2.0,
           Math.min(estimatedTextH * 3.0, estimatedTextH * 2.5)
@@ -437,47 +440,70 @@ export default function Home() {
         // Max text width is 2x icon width
         const maxTextWidth = iconW * 2;
 
-        // Render text to PNG with max width based on icon
-        const textPng = await renderTextToPng(
-          businessName,
-          fontFamily,
-          fontSizePx,
-          '#111',
-          maxTextWidth
+        // Generate lockups for all 3 fonts
+        const fonts: Array<'Inter' | 'Lora' | 'Larken'> = ['Inter', 'Lora', 'Larken'];
+        const lockups = await Promise.all(
+          fonts.map(async (font) => {
+            // Render text to PNG
+            const textPng = await renderTextToPng(
+              businessName,
+              font,
+              fontSizePx,
+              '#111',
+              maxTextWidth
+            );
+
+            // Compose stacked lockup
+            const lockup = await composeLockup(
+              trimmedIcon.dataUrl,
+              trimmedIcon.width,
+              trimmedIcon.height,
+              textPng.dataUrl
+            );
+
+            // Frame lockup in square with padding (for preview)
+            const framed = await frameToSquare(lockup.dataUrl, 320, 40);
+            return { font, framed, unframed: lockup.dataUrl };
+          })
         );
 
-        // Compose stacked lockup using trimmed icon
-        const lockup = await composeLockup(
-          trimmedIcon.dataUrl,
-          trimmedIcon.width,
-          trimmedIcon.height,
-          textPng.dataUrl
-        );
-
-        // Frame lockup in square with padding
-        const framed = await frameToSquare(lockup.dataUrl, 320, 40);
-
-        setLockupPng(lockup.dataUrl);
-        setLockupPngLogicalSize({ width: lockup.width, height: lockup.height });
-        setFramedLockupPng(framed);
+        setLockupInterPng(lockups.find(l => l.font === 'Inter')?.framed || null);
+        setLockupLoraPng(lockups.find(l => l.font === 'Lora')?.framed || null);
+        setLockupLarkenPng(lockups.find(l => l.font === 'Larken')?.framed || null);
+        
+        // Store unframed for download
+        setLockupInterUnframed(lockups.find(l => l.font === 'Inter')?.unframed || null);
+        setLockupLoraUnframed(lockups.find(l => l.font === 'Lora')?.unframed || null);
+        setLockupLarkenUnframed(lockups.find(l => l.font === 'Larken')?.unframed || null);
       } catch (error) {
-        console.error('Failed to generate lockup:', error);
+        console.error('Failed to generate lockups:', error);
       }
     };
 
-    generateLockup();
-  }, [businessName, iconPngBase64, fontFamily]);
+    generateLockups();
+  }, [businessName, iconPngBase64]);
 
 
-  // Download lockup PNG
-  const handleDownloadLockupPng = () => {
-    if (!lockupPng) return;
-
+  // Helper: Download data URL as file
+  const downloadDataUrl = (dataUrl: string, filename: string) => {
     const a = document.createElement('a');
-    a.href = lockupPng;
-    a.download = 'lockup.png';
+    a.href = dataUrl;
+    a.download = filename;
     a.click();
   };
+
+  // Download lockup PNG for a specific font (unframed)
+  const handleDownloadLockup = (fontName: 'Inter' | 'Lora' | 'Larken') => {
+    const unframedPng = 
+      fontName === 'Inter' ? lockupInterUnframed :
+      fontName === 'Lora' ? lockupLoraUnframed :
+      lockupLarkenUnframed;
+    
+    if (!unframedPng) return;
+    const filename = `${businessName.trim() || 'logo'}-${fontName}.png`;
+    downloadDataUrl(unframedPng, filename);
+  };
+
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -489,8 +515,13 @@ export default function Home() {
     setError(null);
     setCurrentLogo(null);
     setIconPngBase64(null);
+    setLockupInterPng(null);
+    setLockupLoraPng(null);
+    setLockupLarkenPng(null);
+    setLockupInterUnframed(null);
+    setLockupLoraUnframed(null);
+    setLockupLarkenUnframed(null);
     setMeta(null);
-    setError(null);
     setProgress(10);
     setStage('Generating icon');
 
@@ -516,9 +547,8 @@ export default function Home() {
         style,
         palette,
         shape,
-        value,
         businessName: businessName.trim() || undefined,
-        fontFamily,
+        fontFamily: 'Inter', // Not used in generation, only for lockups
       };
 
       // Call generate-svg API with format=json
@@ -565,15 +595,19 @@ export default function Home() {
       if (!data.ok) {
         const errorMsg = data.error || data.lastFailureReason || 'Failed to generate logo';
         setError(errorMsg);
-      setIconPngBase64(null);
+        setIconPngBase64(null);
+        setLockupInterPng(null);
+        setLockupLoraPng(null);
+        setLockupLarkenPng(null);
+        setLockupInterUnframed(null);
+        setLockupLoraUnframed(null);
+        setLockupLarkenUnframed(null);
         setMeta(null);
         throw new Error(errorMsg);
       }
 
       // Store PNG data URL
       const iconPngBase64 = typeof data.iconPngBase64 === 'string' ? data.iconPngBase64 : null;
-      
-      setIconPngBase64(iconPngBase64);
       
       if (data.metadata) {
         setMeta(data.metadata);
@@ -584,15 +618,17 @@ export default function Home() {
         throw new Error('Invalid response: PNG is empty or missing');
       }
 
+      // Store icon PNG
+      setIconPngBase64(iconPngBase64);
+
       // Build logo object (PNG-based, SVG generated on demand)
       const logo: CurrentLogo = {
         svg: '', // Will be generated on demand via vectorize endpoint
         spec: null,
         prompt: prompt,
         style: style,
-        palette,
+        palette: palette,
         shape: data.metadata?.shape || shape,
-        value: data.metadata?.value || value,
         createdAt: new Date().toISOString(),
       };
       setCurrentLogo(logo);
@@ -612,70 +648,19 @@ export default function Home() {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setStage('Idle');
       setProgress(0);
-        setIconPngBase64(null);
-        setMeta(null);
+      setIconPngBase64(null);
+      setLockupInterPng(null);
+      setLockupLoraPng(null);
+      setLockupLarkenPng(null);
+      setLockupInterUnframed(null);
+      setLockupLoraUnframed(null);
+      setLockupLarkenUnframed(null);
+      setMeta(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDownload = async (svgContent?: string) => {
-    // If SVG content is provided, use it directly
-    if (svgContent) {
-      const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'logo.svg';
-      a.click();
-      URL.revokeObjectURL(url);
-      return;
-    }
-
-    // Otherwise, vectorize the current PNG
-    if (!iconPngBase64) {
-      console.error('No PNG available to vectorize');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const response = await fetch('/api/vectorize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          iconPngBase64,
-          shape: meta?.shape || 'any',
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Vectorization failed');
-      }
-
-      const data = await response.json();
-      if (!data.ok || !data.iconSvg) {
-        throw new Error('Invalid vectorization response');
-      }
-
-      // Download the SVG
-      const blob = new Blob([data.iconSvg], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'logo.svg';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Failed to download SVG:', error);
-      setError(error instanceof Error ? error.message : 'Failed to vectorize PNG');
-    } finally {
-      setLoading(false);
-    }
-  };
 
 
 
@@ -688,195 +673,156 @@ export default function Home() {
 
 
   return (
-    <main className="min-h-screen bg-neutral-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
+    <main className="min-h-screen bg-gradient-to-b from-zinc-50 to-zinc-100 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-semibold text-neutral-900 mb-3">
-            SVG Logo Generator
+        <div className="text-center mb-10">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 mb-1">
+            AI Logo Generator
           </h1>
-          <p className="text-lg text-neutral-600">
-            Generate icon-only SVG logos from text prompts
-          </p>
+          <p className="text-sm text-zinc-500">Create professional logos with AI</p>
         </div>
 
-        {/* Main Card */}
-        <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 sm:p-10 mb-6">
-          {/* Prompt Input Section */}
-          <div className="mb-6">
-            <label htmlFor="prompt-input" className="block text-sm font-medium text-neutral-700 mb-2">
-              Describe your logo
-            </label>
-            <input
-              id="prompt-input"
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="e.g., ocean logo -mountain, sunrise -text, minimalist wave"
-              className="w-full px-4 py-3.5 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed"
-              disabled={loading}
-              aria-describedby="prompt-helper"
-            />
-            <p id="prompt-helper" className="mt-2 text-sm text-neutral-500">
-              Use -term to exclude concepts (e.g., -mountain -text). Press Enter to generate or click the button below.
-            </p>
-          </div>
+        {/* Control Panel Card */}
+        <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-zinc-200 shadow-sm p-6 sm:p-8 mb-6">
+          {/* Form Grid */}
+          <div className="space-y-4 mb-6">
+            {/* Keywords and Business Name - 2 columns on desktop */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Keywords */}
+              <div>
+                <label htmlFor="prompt-input" className="block text-xs font-medium text-zinc-600 mb-1.5">
+                  Logo Keywords
+                </label>
+                <input
+                  id="prompt-input"
+                  type="text"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="e.g., ocean logo -mountain, sunrise -text"
+                  className="w-full h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all disabled:bg-zinc-50 disabled:cursor-not-allowed"
+                  disabled={loading}
+                />
+                <p className="mt-1 text-xs text-zinc-500">Use -term to exclude concepts</p>
+              </div>
 
-          {/* Business Name Input */}
-          <div className="mb-6">
-            <label htmlFor="business-name-input" className="block text-sm font-medium text-neutral-700 mb-2">
-              Business Name (optional)
-            </label>
-            <input
-              id="business-name-input"
-              type="text"
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="e.g., Acme Corp"
-              className="w-full px-4 py-3.5 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed"
-              disabled={loading}
-            />
-          </div>
+              {/* Business Name */}
+              <div>
+                <label htmlFor="business-name-input" className="block text-xs font-medium text-zinc-600 mb-1.5">
+                  Business Name (optional)
+                </label>
+                <input
+                  id="business-name-input"
+                  type="text"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="e.g., Acme Corp"
+                  className="w-full h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all disabled:bg-zinc-50 disabled:cursor-not-allowed"
+                  disabled={loading}
+                />
+              </div>
+            </div>
 
-              {/* Style, Palette, Shape, Value, Font Controls */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-            <div>
-              <label htmlFor="style-select" className="block text-sm font-medium text-neutral-700 mb-2">
-                Style
-              </label>
-              <select
-                id="style-select"
-                value={style}
-                onChange={(e) => setStyle(e.target.value as 'minimal' | 'balanced' | 'intricate')}
-                disabled={loading}
-                className="w-full px-4 py-3 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed bg-white"
-              >
-                <option value="minimal">Minimal</option>
-                <option value="balanced">Balanced</option>
-                <option value="intricate">Intricate</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="palette-select" className="block text-sm font-medium text-neutral-700 mb-2">
-                Palette
-              </label>
-              <select
-                id="palette-select"
-                value={palette}
-                onChange={(e) => setPalette(e.target.value as 'any' | 'monochrome' | 'warm' | 'cool' | 'complementary' | 'analogous' | 'earth' | 'pastel' | 'neon' | 'black_white')}
-                disabled={loading}
-                className="w-full px-4 py-3 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed bg-white"
-              >
-                <option value="any">Any</option>
-                <option value="monochrome">Monochrome</option>
-                <option value="warm">Warm</option>
-                <option value="cool">Cool</option>
-                <option value="complementary">Complementary</option>
-                <option value="analogous">Analogous</option>
-                <option value="earth">Earth</option>
-                <option value="pastel">Pastel</option>
-                <option value="neon">Neon</option>
-                <option value="black_white">Black & White</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="shape-select" className="block text-sm font-medium text-neutral-700 mb-2">
-                Shape
-              </label>
-              <select
-                id="shape-select"
-                value={shape}
-                onChange={(e) => setShape(e.target.value as 'any' | 'circle' | 'square' | 'roundedSquare' | 'pill' | 'hex' | 'shield')}
-                disabled={loading}
-                className="w-full px-4 py-3 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed bg-white"
-              >
-                <option value="any">Any</option>
-                <option value="circle">Circle</option>
-                <option value="square">Square</option>
-                <option value="roundedSquare">Rounded Square</option>
-                <option value="pill">Pill</option>
-                <option value="hex">Hexagon</option>
-                <option value="shield">Shield</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="value-select" className="block text-sm font-medium text-neutral-700 mb-2">
-                Value
-              </label>
-              <select
-                id="value-select"
-                value={value}
-                onChange={(e) => setValue(e.target.value as 'hybrid' | 'filled' | 'outlined')}
-                disabled={loading}
-                className="w-full px-4 py-3 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed bg-white"
-              >
-                <option value="hybrid">Hybrid</option>
-                <option value="filled">Filled</option>
-                <option value="outlined">Outlined</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="font-select" className="block text-sm font-medium text-neutral-700 mb-2">
-                Font
-              </label>
-              <select
-                id="font-select"
-                value={fontFamily}
-                onChange={(e) => setFontFamily(e.target.value as 'Inter' | 'Lora' | 'Larken')}
-                disabled={loading}
-                className="w-full px-4 py-3 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed bg-white"
-              >
-                <option value="Inter">Inter</option>
-                <option value="Lora">Lora</option>
-                <option value="Larken">Larken</option>
-              </select>
+            {/* Style, Shape, Color - 3 columns on desktop */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Style */}
+              <div>
+                <label htmlFor="style-select" className="block text-xs font-medium text-zinc-600 mb-1.5">
+                  Style
+                </label>
+                <select
+                  id="style-select"
+                  value={style}
+                  onChange={(e) => setStyle(e.target.value as 'minimal' | 'balanced' | 'intricate')}
+                  disabled={loading}
+                  className="w-full h-11 rounded-xl border border-zinc-200 bg-white px-3 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all disabled:bg-zinc-50 disabled:cursor-not-allowed"
+                >
+                  <option value="minimal">Minimal</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="intricate">Intricate</option>
+                </select>
+              </div>
+
+              {/* Shape */}
+              <div>
+                <label htmlFor="shape-select" className="block text-xs font-medium text-zinc-600 mb-1.5">
+                  Shape
+                </label>
+                <select
+                  id="shape-select"
+                  value={shape}
+                  onChange={(e) => setShape(e.target.value as 'any' | 'circle' | 'square' | 'roundedSquare' | 'hex' | 'shield')}
+                  disabled={loading}
+                  className="w-full h-11 rounded-xl border border-zinc-200 bg-white px-3 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all disabled:bg-zinc-50 disabled:cursor-not-allowed"
+                >
+                  <option value="any">Any</option>
+                  <option value="circle">Circle</option>
+                  <option value="square">Square</option>
+                  <option value="roundedSquare">Rounded Square</option>
+                  <option value="hex">Hexagon</option>
+                  <option value="shield">Shield</option>
+                </select>
+              </div>
+
+              {/* Color */}
+              <div>
+                <label htmlFor="palette-select" className="block text-xs font-medium text-zinc-600 mb-1.5">
+                  Color
+                </label>
+                <select
+                  id="palette-select"
+                  value={palette}
+                  onChange={(e) => setPalette(e.target.value as 'any' | 'warm' | 'cool' | 'neutral' | 'complementary' | 'pastel' | 'bold')}
+                  disabled={loading}
+                  className="w-full h-11 rounded-xl border border-zinc-200 bg-white px-3 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all disabled:bg-zinc-50 disabled:cursor-not-allowed"
+                >
+                  <option value="any">Any</option>
+                  <option value="warm">Warm</option>
+                  <option value="cool">Cool</option>
+                  <option value="neutral">Neutral</option>
+                  <option value="complementary">Complementary</option>
+                  <option value="pastel">Pastel</option>
+                  <option value="bold">Bold</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 mb-6">
-            <button
-              onClick={handleGenerate}
-              disabled={loading || !prompt.trim()}
-              className="flex-1 sm:flex-none px-6 py-3 bg-neutral-900 text-white font-medium rounded-lg hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Generating...
-                </span>
-              ) : (
-                'Generate Logo'
-              )}
-            </button>
-            <button
-              onClick={() => handleDownload()}
-              disabled={!currentLogo || loading}
-              className="flex-1 sm:flex-none px-6 py-3 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Download SVG
-            </button>
-          </div>
+          {/* Generate Button */}
+          <button
+            onClick={handleGenerate}
+            disabled={loading || !prompt.trim()}
+            className="w-full h-11 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Generating...
+              </>
+            ) : (
+              'Generate Logo'
+            )}
+          </button>
 
           {/* Progress Bar */}
           {(loading || stage !== 'Idle') && (
-            <div className="mb-6">
+            <div className="mt-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-neutral-600 font-medium">
+                <span className="text-xs text-zinc-600 font-medium">
                   {stage === 'Idle' ? 'Ready' : stage === 'Done' ? 'Complete' : `${stage}…`}
                 </span>
                 {progress > 0 && (
-                  <span className="text-xs text-neutral-500">{Math.round(progress)}%</span>
+                  <span className="text-xs text-zinc-500">{Math.round(progress)}%</span>
                 )}
               </div>
-              <div className="w-full h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-zinc-200 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-neutral-900 rounded-full transition-all duration-300 ease-out"
+                  className="h-full bg-indigo-600 rounded-full transition-all duration-300 ease-out"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -884,109 +830,73 @@ export default function Home() {
           )}
 
           {/* Status Line */}
-          <div className="min-h-[24px]">
+          <div className="mt-4 min-h-[20px]">
             {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
-                <p className="text-sm text-red-800">{error}</p>
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl" role="alert">
+                <p className="text-xs text-red-800">{error}</p>
               </div>
-            )}
-            {!loading && !error && currentLogo && stage === 'Idle' && (
-              <p className="text-sm text-green-700" role="status" aria-live="polite">
-                Logo generated successfully
-              </p>
             )}
           </div>
         </div>
 
-        {/* Preview Card */}
-        <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 sm:p-10 mb-6">
-          {/* Preview Section - Show Icon OR Lockup (not both) */}
-          <div className="mb-6">
+        {/* Result Card */}
+        {iconPngBase64 && (
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-8 sm:p-10">
+            <h2 className="text-lg font-semibold text-zinc-900 mb-6">Result</h2>
+
             {businessName.trim() ? (
-              // Lockup Preview
-              <div>
-                <h2 className="text-lg font-semibold text-neutral-900 mb-4">Lockup Preview</h2>
-                <div className="bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl p-8 sm:p-12 flex items-center justify-center">
-                  {framedLockupPng ? (
-                    <img 
-                      src={framedLockupPng}
-                      alt="Lockup"
-                      className="border border-neutral-200 rounded-xl bg-white"
-                      style={{
-                        width: '320px',
-                        height: '320px',
-                        maxWidth: '100%',
-                        objectFit: 'contain'
-                      }}
-                    />
-                  ) : (
-                    <div className="border border-neutral-200 rounded-xl bg-white flex items-center justify-center" style={{ width: '320px', height: '320px' }}>
-                      <p className="text-neutral-400 text-sm">Generating lockup...</p>
+              /* 3 Lockup Previews */
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {[
+                  { font: 'Inter' as const, png: lockupInterPng },
+                  { font: 'Lora' as const, png: lockupLoraPng },
+                  { font: 'Larken' as const, png: lockupLarkenPng },
+                ].map(({ font, png }) => (
+                  <div key={font} className="flex flex-col items-center">
+                    {/* Preview Frame */}
+                    <div className="aspect-square w-full max-w-[320px] rounded-2xl border border-zinc-200 bg-white shadow-inner flex items-center justify-center overflow-hidden mb-3">
+                      {png ? (
+                        <img
+                          src={png}
+                          alt={`${font} lockup`}
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <div className="text-zinc-400 text-xs">Generating...</div>
+                      )}
                     </div>
-                  )}
-                </div>
+                    
+                    {/* Font Label */}
+                    <p className="text-xs font-medium text-zinc-600 mb-2">{font}</p>
+                    
+                    {/* Download Icon */}
+                    <button
+                      onClick={() => handleDownloadLockup(font)}
+                      disabled={!png}
+                      className="p-2 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={`Download ${font} lockup`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
               </div>
             ) : (
-              // Icon Preview
-              <div>
-                <h2 className="text-lg font-semibold text-neutral-900 mb-4">Icon Preview</h2>
-                <div className="bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl p-8 sm:p-12 flex items-center justify-center">
-                  {iconPngBase64 ? (
-                    <div
-                      className="relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
-                      style={{ background: '#fff' }}
-                    >
-                      <img 
-                        src={iconPngBase64} 
-                        alt="Generated Icon" 
-                        className="w-full h-auto"
-                      />
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <svg
-                        className="mx-auto h-12 w-12 text-neutral-400 mb-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={1.5}
-                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                      </svg>
-                      <p className="text-neutral-500 text-sm">No preview yet</p>
-                    </div>
-                  )}
+              /* Single Icon Preview */
+              <div className="flex justify-center">
+                <div className="aspect-square w-full max-w-[380px] rounded-2xl border border-zinc-200 bg-white shadow-inner flex items-center justify-center overflow-hidden">
+                  <img
+                    src={iconPngBase64}
+                    alt="Generated Icon"
+                    className="w-full h-full object-contain"
+                  />
                 </div>
               </div>
             )}
           </div>
-          
-          {/* Download Buttons */}
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              onClick={() => handleDownload()}
-              disabled={!currentLogo || loading}
-              className="flex-1 sm:flex-none px-4 py-2 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Download Icon SVG
-            </button>
-            {businessName.trim() && lockupPng && (
-              <button
-                onClick={handleDownloadLockupPng}
-                disabled={loading}
-                className="flex-1 sm:flex-none px-4 py-2 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                Download Lockup PNG
-              </button>
-            )}
-          </div>
-          
-        </div>
+        )}
 
       </div>
 
