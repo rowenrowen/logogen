@@ -1,18 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
-
-interface GalleryItem {
-  svg: string;
-  spec: any | null;
-  prompt: string;
-  style: string;
-  palette: string;
-  shape: string;
-  value?: 'hybrid' | 'filled' | 'outlined';
-  createdAt: string;
-}
 
 interface CurrentLogo {
   svg: string;
@@ -25,8 +14,6 @@ interface CurrentLogo {
   createdAt: string;
 }
 
-const STORAGE_KEY = 'logoGallery';
-
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [style, setStyle] = useState<'minimal' | 'balanced' | 'intricate'>('balanced');
@@ -36,164 +23,461 @@ export default function Home() {
   const [fontFamily, setFontFamily] = useState<'Inter' | 'Lora' | 'Larken'>('Inter');
   const [businessName, setBusinessName] = useState('');
   const [currentLogo, setCurrentLogo] = useState<CurrentLogo | null>(null);
-  const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [stage, setStage] = useState<'Idle' | 'Generating icon' | 'Checking background' | 'Checking text' | 'Vectorizing' | 'Done'>('Idle');
-  const [svg, setSvg] = useState<string | null>(null);
-  const [svgUrl, setSvgUrl] = useState<string | null>(null);
-  const [lockupSvg, setLockupSvg] = useState<string | null>(null);
-  const [lockupSvgUrl, setLockupSvgUrl] = useState<string | null>(null);
-  const [lockupHorizontalSvg, setLockupHorizontalSvg] = useState<string | null>(null);
-  const [lockupHorizontalSvgUrl, setLockupHorizontalSvgUrl] = useState<string | null>(null);
-  const [lockupStackedSvg, setLockupStackedSvg] = useState<string | null>(null);
-  const [lockupStackedSvgUrl, setLockupStackedSvgUrl] = useState<string | null>(null);
-  const [pngBase64, setPngBase64] = useState<string | null>(null);
+  const [stage, setStage] = useState<'Idle' | 'Generating icon' | 'Checking background' | 'Checking text' | 'Done'>('Idle');
+  const [iconPngBase64, setIconPngBase64] = useState<string | null>(null);
   const [meta, setMeta] = useState<any | null>(null);
-  const [rawJson, setRawJson] = useState<any | null>(null);
-  const [svgLen, setSvgLen] = useState<number>(0);
-  const [svgImgFailed, setSvgImgFailed] = useState<boolean>(false);
-  const [lockupImgFailed, setLockupImgFailed] = useState<boolean>(false);
-  const [previewTab, setPreviewTab] = useState<'icon' | 'lockup'>('icon');
-  const [lockupVariant, setLockupVariant] = useState<'horizontal' | 'stacked'>('horizontal');
-  const [showLockupDebug, setShowLockupDebug] = useState<boolean>(false);
-  const [lockupDebug, setLockupDebug] = useState<any | null>(null);
+  // Lockup PNG state (stacked only)
+  const [lockupPng, setLockupPng] = useState<string | null>(null);
+  const [lockupPngLogicalSize, setLockupPngLogicalSize] = useState<{ width: number; height: number } | null>(null);
+  const [framedLockupPng, setFramedLockupPng] = useState<string | null>(null);
 
-  // Load gallery from localStorage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setGallery(parsed);
+  // Device pixel ratio for high-quality rendering
+  const DPR = 2;
+
+  // Helper: Trim white padding from PNG
+  const trimWhitePaddingFromPng = async (
+    dataUrl: string
+  ): Promise<{ dataUrl: string; width: number; height: number }> => {
+    const img = new Image();
+    await new Promise<void>((resolve) => {
+      img.onload = () => resolve();
+      img.src = dataUrl;
+    });
+
+    // Create temp canvas to read pixels
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = img.width;
+    tempCanvas.height = img.height;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    tempCtx.drawImage(img, 0, 0);
+
+    // Read pixel data
+    const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+    const data = imageData.data;
+
+    // Find bounding box of non-white pixels
+    let minX = img.width;
+    let minY = img.height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < img.height; y++) {
+      for (let x = 0; x < img.width; x++) {
+        const idx = (y * img.width + x) * 4;
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        const a = data[idx + 3];
+
+        // Treat as white if (r>245 && g>245 && b>245 && a>245)
+        const isWhite = r > 245 && g > 245 && b > 245 && a > 245;
+
+        if (!isWhite) {
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
         }
       }
-    } catch (err) {
-      console.error('Failed to load gallery from localStorage:', err);
     }
-  }, []);
 
-  // Save gallery to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(gallery));
-    } catch (err) {
-      console.error('Failed to save gallery to localStorage:', err);
+    // If no content pixels found, return original
+    if (minX > maxX || minY > maxY) {
+      return {
+        dataUrl,
+        width: img.width,
+        height: img.height,
+      };
     }
-  }, [gallery]);
 
-  // Create Blob URL for SVG and cleanup on change
-  useEffect(() => {
-    if (!svg) {
-      setSvgUrl(null);
-      setSvgLen(0);
-      setSvgImgFailed(false);
-      return;
-    }
-    // Ensure we have the full SVG string
-    const fullSvg = typeof svg === 'string' ? svg : '';
-    if (!fullSvg) {
-      setSvgUrl(null);
-      setSvgLen(0);
-      setSvgImgFailed(false);
-      return;
-    }
-    
-    // Reset img failed flag when SVG changes
-    setSvgImgFailed(false);
-    
-    try {
-      const blob = new Blob([fullSvg], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      setSvgUrl(url);
-      setSvgLen(fullSvg.length);
-      return () => URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to create Blob URL for SVG:', err);
-      setSvgUrl(null);
-      setSvgLen(fullSvg.length);
-      setSvgImgFailed(true);
-    }
-  }, [svg]);
+    // Add safety margin (2px) and clamp
+    const margin = 2;
+    minX = Math.max(0, minX - margin);
+    minY = Math.max(0, minY - margin);
+    maxX = Math.min(img.width - 1, maxX + margin);
+    maxY = Math.min(img.height - 1, maxY + margin);
 
-  // Create Blob URL for horizontal lockup SVG and cleanup on change
-  useEffect(() => {
-    if (!lockupHorizontalSvg) {
-      setLockupHorizontalSvgUrl(null);
-      return;
-    }
-    const fullSvg = typeof lockupHorizontalSvg === 'string' ? lockupHorizontalSvg : '';
-    if (!fullSvg) {
-      setLockupHorizontalSvgUrl(null);
-      return;
-    }
-    
-    try {
-      const blob = new Blob([fullSvg], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      setLockupHorizontalSvgUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to create Blob URL for horizontal lockup SVG:', err);
-      setLockupHorizontalSvgUrl(null);
-    }
-  }, [lockupHorizontalSvg]);
+    const croppedWidth = maxX - minX + 1;
+    const croppedHeight = maxY - minY + 1;
 
-  // Create Blob URL for stacked lockup SVG and cleanup on change
-  useEffect(() => {
-    if (!lockupStackedSvg) {
-      setLockupStackedSvgUrl(null);
-      return;
-    }
-    const fullSvg = typeof lockupStackedSvg === 'string' ? lockupStackedSvg : '';
-    if (!fullSvg) {
-      setLockupStackedSvgUrl(null);
-      return;
-    }
+    // Create cropped canvas at DPR resolution
+    const canvas = document.createElement('canvas');
+    canvas.width = croppedWidth * DPR;
+    canvas.height = croppedHeight * DPR;
+    const ctx = canvas.getContext('2d')!;
     
-    try {
-      const blob = new Blob([fullSvg], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      setLockupStackedSvgUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to create Blob URL for stacked lockup SVG:', err);
-      setLockupStackedSvgUrl(null);
-    }
-  }, [lockupStackedSvg]);
+    // Set transform for high-DPI rendering
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
-  // Create Blob URL for lockup SVG (backward compatibility) and cleanup on change
+    // Fill white background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, croppedWidth, croppedHeight);
+
+    // Draw cropped region
+    ctx.drawImage(
+      img,
+      minX, minY, croppedWidth, croppedHeight,
+      0, 0, croppedWidth, croppedHeight
+    );
+
+    return {
+      dataUrl: canvas.toDataURL('image/png'),
+      width: croppedWidth,
+      height: croppedHeight,
+    };
+  };
+
+  // Helper: Ensure font is loaded before rendering
+  const ensureFontLoaded = async (
+    fontFamily: 'Inter' | 'Lora' | 'Larken',
+    weight: number
+  ): Promise<void> => {
+    const cssFamily =
+      fontFamily === 'Inter' ? 'Inter' :
+      fontFamily === 'Lora' ? 'Lora' : 'Larken';
+
+    // Wait for document fonts system to be ready
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    // Force-load the specific face we need
+    const size = 40; // any size
+    if (document.fonts?.load) {
+      await document.fonts.load(`${weight} ${size}px "${cssFamily}"`);
+    }
+
+    // One more await to ensure it's applied
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+  };
+
+  // Helper: Render text to PNG
+  const renderTextToPng = async (
+    text: string,
+    fontFamily: 'Inter' | 'Lora' | 'Larken',
+    fontSizePx: number,
+    color: string = '#111',
+    maxWidthPx: number = 520
+  ): Promise<{ dataUrl: string; width: number; height: number }> => {
+    const fontWeight = fontFamily === 'Inter' ? 600 : 500;
+    
+    // Ensure font is loaded before rendering
+    await ensureFontLoaded(fontFamily, fontWeight);
+
+    const lineHeight = Math.round(fontSizePx * 1.15);
+    const paddingX = 10;
+    const paddingY = 10;
+
+    // Set font family with explicit quoting + fallbacks
+    const family =
+      fontFamily === 'Inter' ? `"Inter", system-ui, -apple-system, "Segoe UI", sans-serif` :
+      fontFamily === 'Lora' ? `"Lora", serif` :
+      `"Larken", serif`;
+
+    // Create canvas for measurement
+    const measureCanvas = document.createElement('canvas');
+    const measureCtx = measureCanvas.getContext('2d')!;
+    measureCtx.font = `${fontWeight} ${fontSizePx}px ${family}`;
+    
+    // Measure full text single line width
+    const fullW = measureCtx.measureText(text).width;
+    
+    let lines: string[] = [];
+    
+    // If full width is within max, use single line
+    if (fullW <= maxWidthPx) {
+      lines = [text];
+    } else {
+      // Wrap into up to 2 lines
+      const words = text.split(' ');
+      let line1 = '';
+      
+      // Build line1 word-by-word until adding next word would exceed maxWidthPx
+      for (let i = 0; i < words.length; i++) {
+        const testLine = line1 ? `${line1} ${words[i]}` : words[i];
+        const testWidth = measureCtx.measureText(testLine).width;
+        
+        if (testWidth <= maxWidthPx) {
+          line1 = testLine;
+        } else {
+          // This word would exceed, so line1 is done
+          break;
+        }
+      }
+      
+      if (line1) {
+        lines.push(line1);
+        
+        // Remaining words go to line2
+        const line1WordCount = line1.split(' ').length;
+        const remainingWords = words.slice(line1WordCount);
+        
+        if (remainingWords.length > 0) {
+          let line2 = remainingWords.join(' ');
+          const line2Width = measureCtx.measureText(line2).width;
+          
+          // If line2 still exceeds maxWidthPx, truncate with ellipsis
+          if (line2Width > maxWidthPx) {
+            let truncated = '';
+            for (let i = 0; i < remainingWords.length; i++) {
+              const test = truncated ? `${truncated} ${remainingWords[i]}` : remainingWords[i];
+              const testWithEllipsis = `${test}…`;
+              if (measureCtx.measureText(testWithEllipsis).width > maxWidthPx) {
+                break;
+              }
+              truncated = test;
+            }
+            line2 = truncated ? `${truncated}…` : '…';
+          }
+          
+          lines.push(line2);
+        }
+      } else {
+        // Even first word is too long, just use it (will be truncated in rendering)
+        lines = [text];
+      }
+    }
+
+    // Calculate dimensions (logical)
+    const textWidths = lines.map(line => measureCtx.measureText(line).width);
+    const canvasWidth = Math.min(maxWidthPx, Math.max(...textWidths, 100)) + paddingX * 2;
+    const canvasHeight = lines.length * lineHeight + paddingY * 2;
+
+    // Create final canvas at DPR resolution
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasWidth * DPR;
+    canvas.height = canvasHeight * DPR;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Set transform for high-DPI rendering
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // White background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    // Set font and draw text (logical coordinates) with proper fallbacks
+    ctx.font = `${fontWeight} ${fontSizePx}px ${family}`;
+    ctx.fillStyle = color;
+    ctx.textBaseline = 'top';
+    
+    // Debug guard: check if font loaded correctly (temporary)
+    const m1 = ctx.measureText('MMMMMM').width;
+    ctx.font = `${fontWeight} ${fontSizePx}px serif`;
+    const m2 = ctx.measureText('MMMMMM').width;
+    ctx.font = `${fontWeight} ${fontSizePx}px ${family}`; // restore
+    // If m1 is extremely close to m2 for Inter, likely fallback, but proceed anyway
+
+    lines.forEach((line, index) => {
+      const y = paddingY + index * lineHeight;
+      ctx.fillText(line, paddingX, y);
+    });
+
+    return {
+      dataUrl: canvas.toDataURL('image/png'),
+      width: canvasWidth,
+      height: canvasHeight,
+    };
+  };
+
+  // Helper: Compose icon + text into lockup PNG (stacked only)
+  const composeLockup = async (
+    trimmedIconPngDataUrl: string,
+    trimmedIconWidth: number,
+    trimmedIconHeight: number,
+    textPngDataUrl: string
+  ): Promise<{ dataUrl: string; width: number; height: number }> => {
+    // Load images
+    const iconImg = new Image();
+    const textImg = new Image();
+    
+    await Promise.all([
+      new Promise<void>((resolve) => {
+        iconImg.onload = () => resolve();
+        iconImg.src = trimmedIconPngDataUrl;
+      }),
+      new Promise<void>((resolve) => {
+        textImg.onload = () => resolve();
+        textImg.src = textPngDataUrl;
+      }),
+    ]);
+
+    const textH = textImg.height;
+    const textW = textImg.width;
+    const trimmedIconW = trimmedIconWidth;
+    const trimmedIconH = trimmedIconHeight;
+
+    // Target icon height: clamp(textH * 2.5, textH * 2.0, textH * 3.0)
+    const targetIconH = Math.max(
+      textH * 2.0,
+      Math.min(textH * 3.0, textH * 2.5)
+    );
+    const iconScale = targetIconH / trimmedIconH;
+    const iconW = trimmedIconW * iconScale;
+    const iconH = targetIconH;
+
+    // Gap: round(textH * 0.35), clamped between 10 and 22
+    const gap = Math.max(10, Math.min(22, Math.round(textH * 0.35)));
+
+    // Stacked layout
+    const canvasWidth = Math.max(iconW, textW);
+    const canvasHeight = iconH + gap + textH;
+    const iconX = (canvasWidth - iconW) / 2;
+    const iconY = 0;
+    const textX = (canvasWidth - textW) / 2;
+    const textY = iconH + gap;
+
+    // Create canvas at DPR resolution
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasWidth * DPR;
+    canvas.height = canvasHeight * DPR;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Set transform for high-DPI rendering
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // White background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    // Draw icon (logical coordinates)
+    ctx.drawImage(iconImg, iconX, iconY, iconW, iconH);
+
+    // Draw text (logical coordinates)
+    ctx.drawImage(textImg, textX, textY);
+
+    return {
+      dataUrl: canvas.toDataURL('image/png'),
+      width: canvasWidth, // Return logical size
+      height: canvasHeight, // Return logical size
+    };
+  };
+
+  // Helper: Frame lockup in square with padding
+  const frameToSquare = async (
+    lockupPngDataUrl: string,
+    boxSize: number = 320,
+    framePaddingPx: number = 40
+  ): Promise<string> => {
+    const img = new Image();
+    await new Promise<void>((resolve) => {
+      img.onload = () => resolve();
+      img.src = lockupPngDataUrl;
+    });
+
+    const innerSize = boxSize - 2 * framePaddingPx;
+    const scale = Math.min(innerSize / img.width, innerSize / img.height);
+    const scaledW = img.width * scale;
+    const scaledH = img.height * scale;
+    const dx = (boxSize - scaledW) / 2;
+    const dy = (boxSize - scaledH) / 2;
+
+    // Create canvas at DPR resolution
+    const canvas = document.createElement('canvas');
+    canvas.width = boxSize * DPR;
+    canvas.height = boxSize * DPR;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Set transform for high-DPI rendering
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // White background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, boxSize, boxSize);
+
+    // Draw centered lockup (logical coordinates)
+    ctx.drawImage(img, dx, dy, scaledW, scaledH);
+
+    return canvas.toDataURL('image/png');
+  };
+
+  // Generate lockup PNG when businessName or icon changes
   useEffect(() => {
-    if (!lockupSvg) {
-      setLockupSvgUrl(null);
-      setLockupImgFailed(false);
+    if (!businessName.trim() || !iconPngBase64) {
+      setLockupPng(null);
+      setLockupPngLogicalSize(null);
+      setFramedLockupPng(null);
       return;
     }
-    // Ensure we have the full SVG string
-    const fullLockupSvg = typeof lockupSvg === 'string' ? lockupSvg : '';
-    if (!fullLockupSvg) {
-      setLockupSvgUrl(null);
-      setLockupImgFailed(false);
-      return;
-    }
-    
-    // Reset img failed flag when lockup SVG changes
-    setLockupImgFailed(false);
-    
-    try {
-      const blob = new Blob([fullLockupSvg], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      setLockupSvgUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to create Blob URL for lockup SVG:', err);
-      setLockupSvgUrl(null);
-      setLockupImgFailed(true);
-    }
-  }, [lockupSvg]);
+
+    const generateLockup = async () => {
+      try {
+        // Trim white padding from icon
+        const trimmedIcon = await trimWhitePaddingFromPng(iconPngBase64);
+
+        // Estimate text height to calculate icon dimensions first
+        // Single line: fontSize * lineHeight, two lines: fontSize * lineHeight * 2
+        const fontSizePx = 36;
+        const lineHeight = Math.round(fontSizePx * 1.15);
+        const paddingY = 10;
+        // Estimate: assume 1-2 lines, use average
+        const estimatedTextH = lineHeight * 1.5 + paddingY * 2;
+
+        // Calculate icon dimensions based on estimated text height
+        const targetIconH = Math.max(
+          estimatedTextH * 2.0,
+          Math.min(estimatedTextH * 3.0, estimatedTextH * 2.5)
+        );
+        const iconScale = targetIconH / trimmedIcon.height;
+        const iconW = trimmedIcon.width * iconScale;
+
+        // Max text width is 2x icon width
+        const maxTextWidth = iconW * 2;
+
+        // Render text to PNG with max width based on icon
+        const textPng = await renderTextToPng(
+          businessName,
+          fontFamily,
+          fontSizePx,
+          '#111',
+          maxTextWidth
+        );
+
+        // Compose stacked lockup using trimmed icon
+        const lockup = await composeLockup(
+          trimmedIcon.dataUrl,
+          trimmedIcon.width,
+          trimmedIcon.height,
+          textPng.dataUrl
+        );
+
+        // Frame lockup in square with padding
+        const framed = await frameToSquare(lockup.dataUrl, 320, 40);
+
+        setLockupPng(lockup.dataUrl);
+        setLockupPngLogicalSize({ width: lockup.width, height: lockup.height });
+        setFramedLockupPng(framed);
+      } catch (error) {
+        console.error('Failed to generate lockup:', error);
+      }
+    };
+
+    generateLockup();
+  }, [businessName, iconPngBase64, fontFamily]);
+
+
+  // Download lockup PNG
+  const handleDownloadLockupPng = () => {
+    if (!lockupPng) return;
+
+    const a = document.createElement('a');
+    a.href = lockupPng;
+    a.download = 'lockup.png';
+    a.click();
+  };
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -204,23 +488,8 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setCurrentLogo(null);
-    setSaveMessage(null);
-        setSvg(null);
-        setSvgUrl(null);
-        setLockupSvg(null);
-        setLockupSvgUrl(null);
-        setLockupHorizontalSvg(null);
-        setLockupHorizontalSvgUrl(null);
-        setLockupStackedSvg(null);
-        setLockupStackedSvgUrl(null);
-        setPngBase64(null);
-        setMeta(null);
-        setRawJson(null);
-        setSvgLen(0);
-        setSvgImgFailed(false);
-        setLockupImgFailed(false);
-        setPreviewTab('icon');
-        setLockupVariant('horizontal');
+    setIconPngBase64(null);
+    setMeta(null);
     setError(null);
     setProgress(10);
     setStage('Generating icon');
@@ -241,8 +510,6 @@ export default function Home() {
     startProgressAnimation();
 
     try {
-      // Collect existing gallery SVGs for similarity screening
-      const gallerySvgs = gallery.map(item => item.svg);
 
       const payload = {
         prompt,
@@ -252,10 +519,7 @@ export default function Home() {
         value,
         businessName: businessName.trim() || undefined,
         fontFamily,
-        gallerySvgs,
       };
-      
-      console.log("GENERATE PAYLOAD", payload);
 
       // Call generate-svg API with format=json
       const response = await fetch(`/api/generate-svg?format=json`, {
@@ -281,8 +545,8 @@ export default function Home() {
       setStage('Checking text');
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      setProgress(70);
-      setStage('Vectorizing');
+      setProgress(90);
+      setStage('Done');
 
       if (!response.ok) {
         let errorData;
@@ -297,68 +561,38 @@ export default function Home() {
       // Parse JSON response
       const data = await response.json();
       
-      // Store raw JSON for debugging (full response)
-      setRawJson(data);
-
       // Check if request failed
       if (!data.ok) {
         const errorMsg = data.error || data.lastFailureReason || 'Failed to generate logo';
         setError(errorMsg);
-        setSvg(null);
-        setSvgUrl(null);
-        setLockupSvg(null);
-        setLockupSvgUrl(null);
-        setLockupHorizontalSvg(null);
-        setLockupHorizontalSvgUrl(null);
-        setLockupStackedSvg(null);
-        setLockupStackedSvgUrl(null);
-        setPngBase64(null);
+      setIconPngBase64(null);
         setMeta(null);
-        setSvgLen(0);
-        setLockupImgFailed(false);
-        setLockupVariant('horizontal');
         throw new Error(errorMsg);
       }
 
-      // Store FULL SVG and PNG base64 with type checking
-      const fullSvg = typeof data.svg === 'string' ? data.svg : null;
-      const fullLockupSvg = typeof data.lockupSvg === 'string' ? data.lockupSvg : null;
-      const fullLockupHorizontalSvg = typeof data.lockupHorizontalSvg === 'string' ? data.lockupHorizontalSvg : null;
-      const fullLockupStackedSvg = typeof data.lockupStackedSvg === 'string' ? data.lockupStackedSvg : null;
-      const fullPngBase64 = typeof data.pngBase64 === 'string' ? data.pngBase64 : null;
+      // Store PNG data URL
+      const iconPngBase64 = typeof data.iconPngBase64 === 'string' ? data.iconPngBase64 : null;
       
-      setSvg(fullSvg);
-      setLockupSvg(fullLockupSvg);
-      setLockupHorizontalSvg(fullLockupHorizontalSvg);
-      setLockupStackedSvg(fullLockupStackedSvg);
-      setPngBase64(fullPngBase64);
+      setIconPngBase64(iconPngBase64);
       
-      // Switch to lockup tab if lockup exists, otherwise stay on icon
-      if (fullLockupHorizontalSvg || fullLockupStackedSvg) {
-        setPreviewTab('lockup');
-        setLockupVariant('horizontal'); // Default to horizontal
-      } else {
-        setPreviewTab('icon');
-      }
-      
-      if (data.meta) {
-        setMeta(data.meta);
+      if (data.metadata) {
+        setMeta(data.metadata);
       }
 
-      // Validate SVG
-      if (!fullSvg || fullSvg.length === 0) {
-        throw new Error('Invalid response: SVG is empty or missing');
+      // Validate PNG
+      if (!iconPngBase64 || iconPngBase64.length === 0) {
+        throw new Error('Invalid response: PNG is empty or missing');
       }
 
-      // Build logo object using the FULL svg
+      // Build logo object (PNG-based, SVG generated on demand)
       const logo: CurrentLogo = {
-        svg: fullSvg,
-        spec: null, // No spec for image-based generation
+        svg: '', // Will be generated on demand via vectorize endpoint
+        spec: null,
         prompt: prompt,
         style: style,
         palette,
-        shape: data.meta?.shape || shape,
-        value: data.meta?.value || value,
+        shape: data.metadata?.shape || shape,
+        value: data.metadata?.value || value,
         createdAt: new Date().toISOString(),
       };
       setCurrentLogo(logo);
@@ -378,79 +612,72 @@ export default function Home() {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setStage('Idle');
       setProgress(0);
-      setSvg(null);
-      setSvgUrl(null);
-        setLockupSvg(null);
-        setLockupSvgUrl(null);
-        setLockupHorizontalSvg(null);
-        setLockupHorizontalSvgUrl(null);
-        setLockupStackedSvg(null);
-        setLockupStackedSvgUrl(null);
-        setPngBase64(null);
+        setIconPngBase64(null);
         setMeta(null);
-        setSvgLen(0);
-        setLockupImgFailed(false);
-        setPreviewTab('icon');
-        setLockupVariant('horizontal');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDownload = (svgContent?: string) => {
-    const svgToDownload = svgContent || currentLogo?.svg;
-    if (!svgToDownload) return;
-
-    const blob = new Blob([svgToDownload], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'logo.svg';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadLockup = (variant: 'horizontal' | 'stacked') => {
-    const svgToDownload = variant === 'horizontal' ? lockupHorizontalSvg : lockupStackedSvg;
-    if (!svgToDownload) return;
-
-    const blob = new Blob([svgToDownload], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `logo-lockup-${variant}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleSaveToGallery = () => {
-    if (!currentLogo) return;
-
-    // Check for duplicates
-    const isDuplicate = gallery.some(item => item.svg === currentLogo.svg);
-    if (isDuplicate) {
-      setSaveMessage('Already saved');
-      setTimeout(() => setSaveMessage(null), 2000);
+  const handleDownload = async (svgContent?: string) => {
+    // If SVG content is provided, use it directly
+    if (svgContent) {
+      const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'logo.svg';
+      a.click();
+      URL.revokeObjectURL(url);
       return;
     }
 
-    // Add to gallery
-    const newItem: GalleryItem = { ...currentLogo };
-    setGallery(prev => [...prev, newItem]);
-    setSaveMessage('Saved to gallery');
-    setTimeout(() => setSaveMessage(null), 2000);
-  };
+    // Otherwise, vectorize the current PNG
+    if (!iconPngBase64) {
+      console.error('No PNG available to vectorize');
+      return;
+    }
 
-  const handleDeleteFromGallery = (index: number) => {
-    setGallery(prev => prev.filter((_, i) => i !== index));
-  };
+    try {
+      setLoading(true);
+      const response = await fetch('/api/vectorize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          iconPngBase64,
+          shape: meta?.shape || 'any',
+        }),
+      });
 
-  const handleClearGallery = () => {
-    if (gallery.length === 0) return;
-    if (confirm(`Are you sure you want to delete all ${gallery.length} saved logos?`)) {
-      setGallery([]);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Vectorization failed');
+      }
+
+      const data = await response.json();
+      if (!data.ok || !data.iconSvg) {
+        throw new Error('Invalid vectorization response');
+      }
+
+      // Download the SVG
+      const blob = new Blob([data.iconSvg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'logo.svg';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download SVG:', error);
+      setError(error instanceof Error ? error.message : 'Failed to vectorize PNG');
+    } finally {
+      setLoading(false);
     }
   };
+
+
 
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -459,14 +686,6 @@ export default function Home() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    } catch {
-      return 'Unknown date';
-    }
-  };
 
   return (
     <main className="min-h-screen bg-neutral-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -642,13 +861,6 @@ export default function Home() {
             >
               Download SVG
             </button>
-            <button
-              onClick={handleSaveToGallery}
-              disabled={!currentLogo || loading}
-              className="flex-1 sm:flex-none px-6 py-3 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Save to Gallery
-            </button>
           </div>
 
           {/* Progress Bar */}
@@ -683,263 +895,76 @@ export default function Home() {
                 Logo generated successfully
               </p>
             )}
-            {saveMessage && (
-              <p className="text-sm text-blue-700" role="status" aria-live="polite">
-                {saveMessage}
-              </p>
-            )}
           </div>
         </div>
 
         {/* Preview Card */}
         <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 sm:p-10 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-neutral-900">Preview</h2>
-            {lockupSvg && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPreviewTab('icon')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                    previewTab === 'icon'
-                      ? 'bg-neutral-900 text-white'
-                      : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-                  }`}
-                >
-                  Icon
-                </button>
-                <button
-                  onClick={() => setPreviewTab('lockup')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                    previewTab === 'lockup'
-                      ? 'bg-neutral-900 text-white'
-                      : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-                  }`}
-                >
-                  Lockup
-                </button>
+          {/* Preview Section - Show Icon OR Lockup (not both) */}
+          <div className="mb-6">
+            {businessName.trim() ? (
+              // Lockup Preview
+              <div>
+                <h2 className="text-lg font-semibold text-neutral-900 mb-4">Lockup Preview</h2>
+                <div className="bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl p-8 sm:p-12 flex items-center justify-center">
+                  {framedLockupPng ? (
+                    <img 
+                      src={framedLockupPng}
+                      alt="Lockup"
+                      className="border border-neutral-200 rounded-xl bg-white"
+                      style={{
+                        width: '320px',
+                        height: '320px',
+                        maxWidth: '100%',
+                        objectFit: 'contain'
+                      }}
+                    />
+                  ) : (
+                    <div className="border border-neutral-200 rounded-xl bg-white flex items-center justify-center" style={{ width: '320px', height: '320px' }}>
+                      <p className="text-neutral-400 text-sm">Generating lockup...</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              // Icon Preview
+              <div>
+                <h2 className="text-lg font-semibold text-neutral-900 mb-4">Icon Preview</h2>
+                <div className="bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl p-8 sm:p-12 flex items-center justify-center">
+                  {iconPngBase64 ? (
+                    <div
+                      className="relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
+                      style={{ background: '#fff' }}
+                    >
+                      <img 
+                        src={iconPngBase64} 
+                        alt="Generated Icon" 
+                        className="w-full h-auto"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <svg
+                        className="mx-auto h-12 w-12 text-neutral-400 mb-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                      <p className="text-neutral-500 text-sm">No preview yet</p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
-          <div className="bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl p-8 sm:p-12 flex items-center justify-center">
-            {previewTab === 'icon' ? (
-              // Icon Preview
-              svgUrl && !svgImgFailed ? (
-                <div
-                  className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
-                  style={{ background: '#fff' }}
-                >
-                  <img 
-                    src={svgUrl} 
-                    alt="Generated SVG" 
-                    className="w-full h-auto"
-                    onError={(e) => {
-                      console.error('SVG image failed to load', e);
-                      setSvgImgFailed(true);
-                    }}
-                  />
-                </div>
-              ) : svg && svgImgFailed ? (
-                <div
-                  className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
-                  style={{ background: '#fff' }}
-                >
-                  <div 
-                    className="w-full h-full"
-                    dangerouslySetInnerHTML={{ __html: svg }}
-                  />
-                </div>
-              ) : svg && svgLen > 0 ? (
-                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm text-yellow-800">
-                    SVG present ({svgLen} chars) but preview failed — likely invalid SVG markup.
-                  </p>
-                </div>
-              ) : pngBase64 ? (
-                <div
-                  className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
-                  style={{ background: '#fff' }}
-                >
-                  <img 
-                    src={`data:image/png;base64,${pngBase64}`} 
-                    alt="Generated PNG" 
-                    className="w-full h-auto"
-                  />
-                </div>
-              ) : (
-                <div className="text-center">
-                  <svg
-                    className="mx-auto h-12 w-12 text-neutral-400 mb-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
-                  <p className="text-neutral-500 text-sm">No preview yet</p>
-                </div>
-              )
-            ) : (
-              // Lockup Preview
-              (lockupHorizontalSvg || lockupStackedSvg) ? (
-                <div className="w-full space-y-4">
-                  {/* Variant Toggle */}
-                  <div className="flex justify-center gap-2">
-                    <button
-                      onClick={() => setLockupVariant('horizontal')}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                        lockupVariant === 'horizontal'
-                          ? 'bg-neutral-900 text-white'
-                          : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-                      }`}
-                    >
-                      Horizontal
-                    </button>
-                    <button
-                      onClick={() => setLockupVariant('stacked')}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                        lockupVariant === 'stacked'
-                          ? 'bg-neutral-900 text-white'
-                          : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-                      }`}
-                    >
-                      Stacked
-                    </button>
-                  </div>
-                  
-                  {/* Lockup Preview */}
-                  {lockupVariant === 'horizontal' ? (
-                    lockupHorizontalSvgUrl ? (
-                      <div
-                        className="svgCanvas relative rounded-xl bg-white border-2 border-blue-500 w-full max-w-[800px] mx-auto flex items-center justify-center"
-                        style={{ background: '#fff', overflow: 'visible' }}
-                      >
-                        <img 
-                          src={lockupHorizontalSvgUrl} 
-                          alt="Horizontal Lockup SVG" 
-                          style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
-                        />
-                      </div>
-                    ) : lockupHorizontalSvg ? (
-                      <div
-                        className="svgCanvas relative rounded-xl bg-white border-2 border-blue-500 w-full max-w-[800px] mx-auto flex items-center justify-center"
-                        style={{ background: '#fff', overflow: 'visible' }}
-                      >
-                        <div 
-                          style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
-                          dangerouslySetInnerHTML={{ __html: lockupHorizontalSvg }}
-                        />
-                      </div>
-                    ) : null
-                  ) : (
-                    lockupStackedSvgUrl ? (
-                      <div
-                        className="svgCanvas relative rounded-xl bg-white border-2 border-blue-500 w-full max-w-[600px] mx-auto flex items-center justify-center"
-                        style={{ background: '#fff', overflow: 'visible' }}
-                      >
-                        <img 
-                          src={lockupStackedSvgUrl} 
-                          alt="Stacked Lockup SVG" 
-                          style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
-                        />
-                      </div>
-                    ) : lockupStackedSvg ? (
-                      <div
-                        className="svgCanvas relative rounded-xl bg-white border-2 border-blue-500 w-full max-w-[600px] mx-auto flex items-center justify-center"
-                        style={{ background: '#fff', overflow: 'visible' }}
-                      >
-                        <div 
-                          style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
-                          dangerouslySetInnerHTML={{ __html: lockupStackedSvg }}
-                        />
-                      </div>
-                    ) : null
-                  )}
-                </div>
-              ) : (
-                <div className="text-center">
-                  <svg
-                    className="mx-auto h-12 w-12 text-neutral-400 mb-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
-                  <p className="text-neutral-500 text-sm">No lockup preview available</p>
-                </div>
-              )
-            )}
-          </div>
-          
-          {/* Debug Panel */}
-          {(lockupHorizontalSvg || lockupStackedSvg) && (
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setShowLockupDebug(v => !v);
-                }}
-                className="px-3 py-1.5 text-xs font-medium text-neutral-600 hover:text-neutral-900 border border-neutral-300 rounded-lg hover:bg-neutral-50 transition-colors"
-              >
-                {showLockupDebug ? 'Hide' : 'Show'} debug
-              </button>
-              {showLockupDebug && (
-                <div className="mt-4 p-4 bg-neutral-50 border-2 border-red-500 rounded-lg text-sm">
-                  <h3 className="text-2xl font-bold text-red-600 mb-4">DEBUG ENABLED</h3>
-                  <div className="mb-3 space-y-2">
-                    <div>
-                      <strong>businessName:</strong> {businessName || '(empty)'}
-                    </div>
-                    <div>
-                      <strong>selectedFontFamily:</strong> {fontFamily}
-                    </div>
-                    <div>
-                      <strong>Rendering SVG field:</strong> lockup{lockupVariant === 'horizontal' ? 'Horizontal' : 'Stacked'}Svg
-                    </div>
-                    <div>
-                      <strong>Available SVGs:</strong>
-                      <ul className="ml-4 list-disc">
-                        <li>iconSvg: {svg ? '✓ present' : '✗ null'}</li>
-                        <li>lockupSvg: {lockupSvg ? '✓ present' : '✗ null'}</li>
-                        <li>lockupHorizontalSvg: {lockupHorizontalSvg ? '✓ present' : '✗ null'}</li>
-                        <li>lockupStackedSvg: {lockupStackedSvg ? '✓ present' : '✗ null'}</li>
-                      </ul>
-                    </div>
-                  </div>
-                  {lockupDebug && (
-                    <div className="mb-3">
-                      <strong>Debug Data:</strong>
-                      <pre className="mt-2 p-2 bg-white border border-neutral-200 rounded text-xs overflow-auto max-h-64">
-                        {JSON.stringify(lockupDebug, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  <div>
-                    <strong>SVG Preview (first 500 chars):</strong>
-                    <textarea
-                      readOnly
-                      value={(lockupVariant === 'horizontal' ? lockupHorizontalSvg : lockupStackedSvg)?.substring(0, 500) || ''}
-                      className="mt-2 w-full p-2 bg-white border border-neutral-200 rounded text-xs font-mono"
-                      rows={8}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
           
           {/* Download Buttons */}
           <div className="mt-4 flex flex-wrap gap-3">
@@ -950,198 +975,21 @@ export default function Home() {
             >
               Download Icon SVG
             </button>
-            {lockupHorizontalSvg && (
+            {businessName.trim() && lockupPng && (
               <button
-                onClick={() => handleDownloadLockup('horizontal')}
+                onClick={handleDownloadLockupPng}
                 disabled={loading}
                 className="flex-1 sm:flex-none px-4 py-2 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                Download Horizontal Lockup
-              </button>
-            )}
-            {lockupStackedSvg && (
-              <button
-                onClick={() => handleDownloadLockup('stacked')}
-                disabled={loading}
-                className="flex-1 sm:flex-none px-4 py-2 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                Download Stacked Lockup
+                Download Lockup PNG
               </button>
             )}
           </div>
           
-          {/* Debug Block */}
-          {(rawJson || svgLen > 0 || pngBase64) && (
-            <div className="mt-4 pt-4 border-t border-neutral-200">
-              <div className="p-3 bg-neutral-50 rounded-lg space-y-2">
-                <p className="text-xs font-medium text-neutral-700">Debug Info</p>
-                
-                {/* Status */}
-                <div className="text-xs text-neutral-600">
-                  <span className="font-medium">Status:</span>{' '}
-                  <span className={rawJson?.ok ? 'text-green-700' : 'text-red-700'}>
-                    {rawJson?.ok ? 'OK' : 'FAILED'}
-                  </span>
-                </div>
-
-                {/* SVG Length */}
-                <div className="text-xs text-neutral-600">
-                  <span className="font-medium">SVG Length:</span> {svgLen} chars
-                </div>
-
-                {/* SVG Preview (first 400 chars - truncated for display only) */}
-                {svg && (
-                  <div className="text-xs text-neutral-600">
-                    <span className="font-medium">SVG Preview (first 400 chars):</span>
-                    <pre className="mt-1 p-2 bg-white rounded border border-neutral-200 overflow-auto max-h-20 text-[10px] font-mono">
-                      {svg.slice(0, 400)}
-                      {svg.length > 400 ? '…' : ''}
-                    </pre>
-                  </div>
-                )}
-
-                {/* PNG Thumbnail */}
-                {pngBase64 && (
-                  <div className="text-xs text-neutral-600">
-                    <span className="font-medium">Original PNG:</span>
-                    <div className="mt-1">
-                      <img
-                        src={`data:image/png;base64,${pngBase64}`}
-                        alt="Original generated PNG"
-                        className="max-w-[200px] h-auto rounded border border-neutral-200"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Full JSON (collapsible) */}
-                {rawJson && (
-                  <details className="mt-2">
-                    <summary className="text-xs text-neutral-600 cursor-pointer hover:text-neutral-900">
-                      Show full JSON response
-                    </summary>
-                    <pre className="mt-2 text-xs text-neutral-700 overflow-auto max-h-64 bg-white p-2 rounded border border-neutral-200 font-mono">
-                      {JSON.stringify(rawJson, null, 2)}
-                    </pre>
-                  </details>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Error Display (if ok=false) */}
-          {rawJson && !rawJson.ok && (
-            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg" role="alert">
-              <p className="text-sm font-medium text-red-900 mb-1">Generation Failed</p>
-              <p className="text-sm text-red-800">
-                {rawJson.error || rawJson.lastFailureReason || 'Unknown error'}
-              </p>
-              {rawJson.attempts && (
-                <p className="text-xs text-red-700 mt-1">
-                  Attempts: {rawJson.attempts}
-                </p>
-              )}
-            </div>
-          )}
         </div>
 
-        {/* Gallery Card */}
-        <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 sm:p-10">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-semibold text-neutral-900">
-              Gallery {gallery.length > 0 && `(${gallery.length})`}
-            </h2>
-            {gallery.length > 0 && (
-              <button
-                onClick={handleClearGallery}
-                className="px-4 py-2 text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-              >
-                Clear Gallery
-              </button>
-            )}
-          </div>
-
-          {gallery.length === 0 ? (
-            <div className="text-center py-12">
-              <svg
-                className="mx-auto h-12 w-12 text-neutral-400 mb-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-              <p className="text-neutral-500 text-sm">No saved logos yet. Generate and save a logo to get started.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {gallery.map((item, index) => (
-                <div
-                  key={index}
-                  className="border border-neutral-200 rounded-lg p-4 bg-neutral-50 hover:bg-white transition-colors"
-                >
-                  {/* SVG Preview */}
-                  <div className="svgCanvas relative overflow-hidden rounded-lg bg-white border border-neutral-200 mb-3 w-full aspect-square">
-                    <div
-                      dangerouslySetInnerHTML={{ __html: item.svg }}
-                      role="img"
-                      aria-label={`Logo preview: ${item.prompt}`}
-                    />
-                  </div>
-
-                  {/* Metadata */}
-                  <div className="mb-3 space-y-1">
-                    <p className="text-sm font-medium text-neutral-900 truncate" title={item.prompt}>
-                      {item.prompt}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs text-neutral-600">
-                      <span className="capitalize">{item.style || 'balanced'}</span>
-                      <span>•</span>
-                      <span className="capitalize">{item.palette || 'any'}</span>
-                      {item.value && item.value !== 'hybrid' && (
-                        <>
-                          <span>•</span>
-                          <span className="capitalize">{item.value}</span>
-                        </>
-                      )}
-                      {(item.shape && item.shape !== 'any') && (
-                        <>
-                          <span>•</span>
-                          <span className="capitalize">{item.shape}</span>
-                        </>
-                      )}
-                    </div>
-                    <p className="text-xs text-neutral-500">{formatDate(item.createdAt)}</p>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleDownload(item.svg)}
-                      className="flex-1 px-3 py-1.5 text-xs font-medium text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-1 transition-colors"
-                    >
-                      Download
-                    </button>
-                    <button
-                      onClick={() => handleDeleteFromGallery(index)}
-                      className="px-3 py-1.5 text-xs font-medium text-red-700 bg-white border border-red-300 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 transition-colors"
-                      aria-label="Delete logo"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
+
     </main>
   );
 }

@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
-import { generateSvgFromPrompt, GenerateSvgParams } from '../../../lib/generateSvg';
+import { generatePngFromPrompt, GenerateSvgParams } from '../../../lib/generateSvg';
 
 // Process-level error handlers for TDZ debugging
 process.on("uncaughtException", (err) => {
@@ -53,40 +53,23 @@ export async function GET(request: NextRequest) {
 
     console.log('GET params.paletteChoice:', params.paletteChoice);
 
-    const format = searchParams.get('format') || 'json';
+    const result = await generatePngFromPrompt(params);
 
-    const result = await generateSvgFromPrompt(params);
-
-    if (format === 'json') {
-      return NextResponse.json(
-        {
-          ok: true,
-          svg: result.svg,
-          lockupSvg: result.lockupSvg,
-          lockupHorizontalSvg: result.lockupHorizontalSvg,
-          lockupStackedSvg: result.lockupStackedSvg,
-          lockupDebug: result.lockupDebug,
-          pngBase64: result.pngBase64,
-          meta: result.meta,
-        },
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache',
-          },
-        }
-      );
-    } else {
-      // Return raw SVG
-      return new NextResponse(result.svg, {
+    return NextResponse.json(
+      {
+        ok: true,
+        iconPngBase64: result.iconPngBase64,
+        palette: result.palette,
+        metadata: result.metadata,
+      },
+      {
         status: 200,
         headers: {
-          'Content-Type': 'image/svg+xml',
+          'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
         },
-      });
-    }
+      }
+    );
   } catch (err: any) {
     console.error("API ERROR in GET:", err);
     console.error("STACK:", err?.stack);
@@ -141,19 +124,15 @@ export async function POST(request: NextRequest) {
 
     console.log('POST params.paletteChoice:', params.paletteChoice);
 
-    const result = await generateSvgFromPrompt(params);
+    const result = await generatePngFromPrompt(params);
 
     return NextResponse.json(
-        {
-          ok: true,
-          svg: result.svg,
-          lockupSvg: result.lockupSvg,
-          lockupHorizontalSvg: result.lockupHorizontalSvg,
-          lockupStackedSvg: result.lockupStackedSvg,
-          lockupDebug: result.lockupDebug,
-          pngBase64: result.pngBase64,
-          meta: result.meta,
-        },
+      {
+        ok: true,
+        iconPngBase64: result.iconPngBase64,
+        palette: result.palette,
+        metadata: result.metadata,
+      },
       {
         status: 200,
         headers: {

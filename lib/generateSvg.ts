@@ -7,7 +7,6 @@ import { parsePrompt, ParsedPrompt } from "./parsePrompt";
 import { applyShapeMask } from "./applyShapeMask";
 import { enforceShapeInSvg } from "./enforceShapeInSvg";
 import { preprocessForVectorize } from "./preprocessForVectorize";
-import { composeLockups, LockupResult } from "./composeLockups";
 import sharp from "sharp";
 
 export async function generateSvgFromPng(
@@ -60,12 +59,24 @@ export interface GenerateSvgParams {
   gallerySvgs?: string[];
 }
 
+export interface GeneratePngResult {
+  iconPngBase64: string; // "data:image/png;base64,..."
+  palette?: string[];
+  metadata?: {
+    prompt: string;
+    style: string;
+    palette: string;
+    shape: string;
+    value?: 'hybrid' | 'filled' | 'outlined';
+    attempts: number;
+    qcReasons: string[];
+  };
+}
+
 export interface GenerateSvgResult {
   svg: string;
-  lockupSvg: string | null; // Backward compatibility: set to horizontal
   lockupHorizontalSvg: string | null;
   lockupStackedSvg: string | null;
-  lockupDebug: any | null;
   pngBase64: string;
   meta: {
     prompt: string;
@@ -283,6 +294,165 @@ function computeColorSimilarity(colors1: Set<string>, colors2: Set<string>): num
   const union = new Set([...colors1, ...colors2]);
 
   return intersection.size / union.size;
+}
+
+/**
+ * Generates a PNG logo from a prompt using OpenAI image generation (no vectorization).
+ * 
+ * @param params - Generation parameters
+ * @returns Promise with PNG data URL and metadata
+ * @throws Error if generation fails after all retries
+ */
+export async function generatePngFromPrompt(
+  params: GenerateSvgParams
+): Promise<GeneratePngResult> {
+  const {
+    prompt,
+    style = 'balanced',
+    paletteChoice,
+    shape = 'any',
+    value = 'hybrid',
+    gallerySvgs = [],
+  } = params;
+
+  if (!prompt || typeof prompt !== 'string') {
+    throw new Error('Missing or invalid prompt');
+  }
+
+  // Parse prompt for positive and negative terms
+  const parsedPrompt = parsePrompt(prompt);
+
+  // Ensure paletteChoice is valid
+  const validPaletteChoices = ['any', 'monochrome', 'warm', 'cool', 'complementary', 'analogous', 'earth', 'pastel', 'neon', 'black_white'];
+  if (!paletteChoice || !validPaletteChoices.includes(paletteChoice)) {
+    throw new Error(`Invalid paletteChoice: ${paletteChoice}`);
+  }
+
+  // Build strict image prompt using parsed prompt
+  const imagePrompt = buildImagePrompt(parsedPrompt, {
+    style,
+    palette: paletteChoice,
+    shape,
+    value,
+  });
+
+  // Try generation with QC checks (up to MAX_TRIES)
+  let lastFailureReason = 'unknown';
+  let attempts = 0;
+
+  for (attempts = 1; attempts <= MAX_TRIES; attempts++) {
+    try {
+      // Generate image using OpenAI Images API
+      const imageModel = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1.5';
+      
+      const generateParams: any = {
+        model: imageModel,
+        prompt: imagePrompt,
+        size: '1024x1024',
+        output_format: 'png',
+      };
+
+      const openai = getOpenAIClient();
+      const response = await openai.images.generate(generateParams);
+
+      if (!response.data || response.data.length === 0) {
+        throw new Error('No image data in response');
+      }
+
+      const imageData = response.data[0];
+      if (!imageData) {
+        throw new Error('No image data in response');
+      }
+
+      // Extract base64
+      let base64Data: string | undefined;
+      if ('b64_json' in imageData && imageData.b64_json) {
+        base64Data = typeof imageData.b64_json === 'string' ? imageData.b64_json : undefined;
+      } else if ('base64' in imageData && imageData.base64) {
+        base64Data = typeof imageData.base64 === 'string' ? imageData.base64 : undefined;
+      }
+
+      if (!base64Data || typeof base64Data !== 'string') {
+        throw new Error('No base64 image data found in response');
+      }
+
+      // Validate base64
+      try {
+        validateBase64(base64Data);
+      } catch (error) {
+        lastFailureReason = `Invalid base64 image data: ${error instanceof Error ? error.message : String(error)}`;
+        continue;
+      }
+
+      // Convert base64 to Buffer
+      let imageBuffer: Buffer;
+      try {
+        imageBuffer = Buffer.from(base64Data, 'base64');
+      } catch (error) {
+        lastFailureReason = `Failed to decode base64: ${error instanceof Error ? error.message : String(error)}`;
+        continue;
+      }
+
+      // Validate image buffer
+      try {
+        await validateImageBuffer(imageBuffer);
+      } catch (error) {
+        lastFailureReason = `Invalid image buffer: ${error instanceof Error ? error.message : String(error)}`;
+        continue;
+      }
+
+      // Preprocess to force white background
+      let processedPng: Buffer;
+      try {
+        processedPng = await preprocessToWhitePng(imageBuffer);
+      } catch (error) {
+        lastFailureReason = `Image preprocessing failed: ${error instanceof Error ? error.message : String(error)}`;
+        continue;
+      }
+
+      const processedBase64 = processedPng.toString('base64');
+
+      // Extract palette
+      let paletteMaxColors = 4;
+      if (paletteChoice === 'monochrome' || paletteChoice === 'black_white') {
+        paletteMaxColors = 2;
+      } else if (paletteChoice === 'complementary') {
+        paletteMaxColors = 3;
+      }
+      const pngPalette = await extractPalette(processedPng, paletteMaxColors);
+
+      // Run QC checks
+      const qcResult = await runQCChecks(processedPng, processedBase64);
+
+      if (!qcResult.pass) {
+        lastFailureReason = `QC check failed: ${qcResult.reasons.join('; ')}`;
+        continue;
+      }
+
+      // Success! Return PNG as data URL
+      const iconPngBase64 = `data:image/png;base64,${processedBase64}`;
+
+      return {
+        iconPngBase64,
+        palette: pngPalette,
+        metadata: {
+          prompt,
+          style,
+          palette: paletteChoice,
+          shape,
+          value,
+          attempts,
+          qcReasons: qcResult.reasons,
+        },
+      };
+    } catch (error: any) {
+      lastFailureReason = error instanceof Error ? error.message : String(error);
+      console.error(`Generate PNG error (attempt ${attempts}/${MAX_TRIES}):`, error);
+    }
+  }
+
+  // All attempts failed
+  throw new Error(`Failed to generate valid icon after ${attempts - 1} attempts: ${lastFailureReason}`);
 }
 
 /**
@@ -576,67 +746,10 @@ export async function generateSvgFromPrompt(
       // Success! Return processed image (with white background)
       // SVG already has white background from VTracer
       
-      // Generate lockups: if businessName is present, compose icon + wordmark
-      let lockupSvg: string | null = null;
-      let lockupHorizontalSvg: string | null = null;
-      let lockupStackedSvg: string | null = null;
-      let lockupDebug: any = null;
-      
-      if (businessName && businessName.trim()) {
-        try {
-          // Use provided fontFamily from params or default to Inter
-          const selectedFontFamily = params.fontFamily || 'Inter';
-          
-          // Choose color from palette (first non-white color, or #111)
-          let wordmarkColor = '#111111';
-          if (pngPalette && pngPalette.length > 0) {
-            // Try to find first non-white color
-            for (const colorStr of pngPalette) {
-              const rgbMatch = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-              if (rgbMatch) {
-                const r = parseInt(rgbMatch[1], 10);
-                const g = parseInt(rgbMatch[2], 10);
-                const b = parseInt(rgbMatch[3], 10);
-                // Use if not near-white
-                if (r < 245 || g < 245 || b < 245) {
-                  wordmarkColor = `rgb(${r}, ${g}, ${b})`;
-                  break;
-                }
-              }
-            }
-          }
-          
-          const lockups = await composeLockups({
-            iconSvg: svg,
-            businessName: businessName.trim(),
-            fontFamily: selectedFontFamily,
-            textColor: wordmarkColor,
-          });
-          
-          lockupHorizontalSvg = lockups.horizontal;
-          lockupStackedSvg = lockups.stacked;
-          lockupSvg = lockups.horizontal; // Backward compatibility
-          lockupDebug = lockups.debug || null;
-          
-          // Debug logging
-          if (lockupDebug) {
-            console.log("LOCKUP DEBUG", lockupDebug);
-          }
-        } catch (error) {
-          // Fallback: if lockup composition fails, use icon only
-          console.error('Failed to compose lockup SVG:', error);
-          lockupSvg = svg;
-          lockupHorizontalSvg = svg;
-          lockupStackedSvg = svg;
-        }
-      }
-      
       return {
         svg,
-        lockupSvg,
-        lockupHorizontalSvg,
-        lockupStackedSvg,
-        lockupDebug,
+        lockupHorizontalSvg: null, // Lockups removed - use HTML/CSS preview instead
+        lockupStackedSvg: null,
         pngBase64: processedBase64, // Return processed base64 (white background)
         meta: {
           prompt,
