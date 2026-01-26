@@ -7,6 +7,7 @@ import { parsePrompt, ParsedPrompt } from "./parsePrompt";
 import { applyShapeMask } from "./applyShapeMask";
 import { enforceShapeInSvg } from "./enforceShapeInSvg";
 import { preprocessForVectorize } from "./preprocessForVectorize";
+import { composeLockups, LockupResult } from "./composeLockups";
 import sharp from "sharp";
 
 export async function generateSvgFromPng(
@@ -54,13 +55,17 @@ export interface GenerateSvgParams {
   paletteChoice: string;
   shape?: string;
   value?: 'hybrid' | 'filled' | 'outlined';
-  industry?: string;
-  svgFidelity?: string;
+  businessName?: string;
+  fontFamily?: 'Inter' | 'Lora' | 'Larken';
   gallerySvgs?: string[];
 }
 
 export interface GenerateSvgResult {
   svg: string;
+  lockupSvg: string | null; // Backward compatibility: set to horizontal
+  lockupHorizontalSvg: string | null;
+  lockupStackedSvg: string | null;
+  lockupDebug: any | null;
   pngBase64: string;
   meta: {
     prompt: string;
@@ -69,7 +74,6 @@ export interface GenerateSvgResult {
     shape: string;
     shapeReceived?: string; // Debug: shape value received
     value?: 'hybrid' | 'filled' | 'outlined'; // Value rendering style
-    industry: string;
     attempts: number;
     qcReasons: string[];
     similarityScore: number;
@@ -117,10 +121,9 @@ function buildImagePrompt(
     palette: string;
     shape: string;
     value: string;
-    industry: string;
   }
 ): string {
-  const { style, palette, shape, value, industry } = options;
+  const { style, palette, shape, value } = options;
 
   // Base constraints for ALL palettes
   let imagePrompt = `Single logo icon only. ONE cohesive icon mark only. No scattered elements. `;
@@ -229,17 +232,6 @@ function buildImagePrompt(
     imagePrompt += `Intricate design: refined details, polished finish. `;
   }
 
-  // Industry guidance
-  if (industry === 'therapy') {
-    imagePrompt += `Therapy industry: calm, friendly, trustworthy, modern, supportive, growth-oriented. `;
-  } else if (industry === 'healthcare') {
-    imagePrompt += `Healthcare: calm, trustworthy, healing-focused. `;
-  } else if (industry === 'tech') {
-    imagePrompt += `Tech: modern, precise, innovation-focused. `;
-  } else if (industry === 'finance') {
-    imagePrompt += `Finance: stable, trustworthy, professional. `;
-  }
-
   // Final containment instruction (safety)
   imagePrompt += `Keep the entire icon centered with generous padding; nothing should touch the image edges. `;
 
@@ -309,8 +301,7 @@ export async function generateSvgFromPrompt(
     paletteChoice,
     shape = 'any',
     value = 'hybrid',
-    industry = 'general',
-    svgFidelity = 'shaded',
+    businessName,
     gallerySvgs = [],
   } = params;
 
@@ -333,7 +324,6 @@ export async function generateSvgFromPrompt(
     palette: paletteChoice,
     shape,
     value,
-    industry,
   });
 
   // Try generation with QC checks and similarity screening (up to MAX_TRIES)
@@ -550,7 +540,6 @@ export async function generateSvgFromPrompt(
           engine: 'vtracer-cli',
           width: 512,
           height: 512,
-          fidelity: svgFidelity || 'shaded',
           colorsUsed: svgPalette.length,
           blurSigma: 0,
           pathomit: 0,
@@ -586,8 +575,68 @@ export async function generateSvgFromPrompt(
 
       // Success! Return processed image (with white background)
       // SVG already has white background from VTracer
+      
+      // Generate lockups: if businessName is present, compose icon + wordmark
+      let lockupSvg: string | null = null;
+      let lockupHorizontalSvg: string | null = null;
+      let lockupStackedSvg: string | null = null;
+      let lockupDebug: any = null;
+      
+      if (businessName && businessName.trim()) {
+        try {
+          // Use provided fontFamily from params or default to Inter
+          const selectedFontFamily = params.fontFamily || 'Inter';
+          
+          // Choose color from palette (first non-white color, or #111)
+          let wordmarkColor = '#111111';
+          if (pngPalette && pngPalette.length > 0) {
+            // Try to find first non-white color
+            for (const colorStr of pngPalette) {
+              const rgbMatch = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+              if (rgbMatch) {
+                const r = parseInt(rgbMatch[1], 10);
+                const g = parseInt(rgbMatch[2], 10);
+                const b = parseInt(rgbMatch[3], 10);
+                // Use if not near-white
+                if (r < 245 || g < 245 || b < 245) {
+                  wordmarkColor = `rgb(${r}, ${g}, ${b})`;
+                  break;
+                }
+              }
+            }
+          }
+          
+          const lockups = await composeLockups({
+            iconSvg: svg,
+            businessName: businessName.trim(),
+            fontFamily: selectedFontFamily,
+            textColor: wordmarkColor,
+          });
+          
+          lockupHorizontalSvg = lockups.horizontal;
+          lockupStackedSvg = lockups.stacked;
+          lockupSvg = lockups.horizontal; // Backward compatibility
+          lockupDebug = lockups.debug || null;
+          
+          // Debug logging
+          if (lockupDebug) {
+            console.log("LOCKUP DEBUG", lockupDebug);
+          }
+        } catch (error) {
+          // Fallback: if lockup composition fails, use icon only
+          console.error('Failed to compose lockup SVG:', error);
+          lockupSvg = svg;
+          lockupHorizontalSvg = svg;
+          lockupStackedSvg = svg;
+        }
+      }
+      
       return {
         svg,
+        lockupSvg,
+        lockupHorizontalSvg,
+        lockupStackedSvg,
+        lockupDebug,
         pngBase64: processedBase64, // Return processed base64 (white background)
         meta: {
           prompt,
@@ -596,7 +645,6 @@ export async function generateSvgFromPrompt(
           shape,
           shapeReceived: shape, // Debug: shape value received
           value, // Value rendering style
-          industry,
           attempts,
           qcReasons: qcResult.reasons,
           similarityScore: maxSimilarity,

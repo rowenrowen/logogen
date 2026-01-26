@@ -47,8 +47,7 @@ export async function GET(request: NextRequest) {
       paletteChoice,
       shape,
       value,
-      industry: searchParams.get('industry') || undefined,
-      svgFidelity: searchParams.get('svgFidelity') || undefined,
+      businessName: searchParams.get('businessName') || undefined,
       // Note: gallerySvgs not available in GET (would need to be passed as query param array)
     };
 
@@ -63,6 +62,10 @@ export async function GET(request: NextRequest) {
         {
           ok: true,
           svg: result.svg,
+          lockupSvg: result.lockupSvg,
+          lockupHorizontalSvg: result.lockupHorizontalSvg,
+          lockupStackedSvg: result.lockupStackedSvg,
+          lockupDebug: result.lockupDebug,
           pngBase64: result.pngBase64,
           meta: result.meta,
         },
@@ -107,8 +110,8 @@ export async function POST(request: NextRequest) {
   try {
     console.log('POST request received, parsing JSON...');
     const body = await request.json();
-    console.log('POST body received:', JSON.stringify(body, null, 2));
-    const { prompt, style, palette, shape, value, industry, svgFidelity, gallerySvgs } = body;
+    console.log("GENERATE BODY", body);
+        const { prompt, style, palette, shape, value, businessName, fontFamily, gallerySvgs } = body;
     console.log('POST extracted prompt:', prompt, 'type:', typeof prompt, 'length:', prompt?.length);
 
     if (!prompt || typeof prompt !== 'string') {
@@ -131,8 +134,8 @@ export async function POST(request: NextRequest) {
       paletteChoice,
       shape: shapeValue,
       value: valueParam,
-      industry,
-      svgFidelity,
+      businessName,
+      fontFamily: (fontFamily || 'Inter') as 'Inter' | 'Lora' | 'Larken',
       gallerySvgs: Array.isArray(gallerySvgs) ? gallerySvgs : [],
     };
 
@@ -141,12 +144,16 @@ export async function POST(request: NextRequest) {
     const result = await generateSvgFromPrompt(params);
 
     return NextResponse.json(
-      {
-        ok: true,
-        svg: result.svg,
-        pngBase64: result.pngBase64,
-        meta: result.meta,
-      },
+        {
+          ok: true,
+          svg: result.svg,
+          lockupSvg: result.lockupSvg,
+          lockupHorizontalSvg: result.lockupHorizontalSvg,
+          lockupStackedSvg: result.lockupStackedSvg,
+          lockupDebug: result.lockupDebug,
+          pngBase64: result.pngBase64,
+          meta: result.meta,
+        },
       {
         status: 200,
         headers: {

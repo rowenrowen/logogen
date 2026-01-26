@@ -11,8 +11,6 @@ interface GalleryItem {
   palette: string;
   shape: string;
   value?: 'hybrid' | 'filled' | 'outlined';
-  industry: string;
-  svgFidelity?: 'flat' | 'shaded' | 'max';
   createdAt: string;
 }
 
@@ -24,8 +22,6 @@ interface CurrentLogo {
   palette: string;
   shape: string;
   value?: 'hybrid' | 'filled' | 'outlined';
-  industry: string;
-  svgFidelity?: 'flat' | 'shaded' | 'max';
   createdAt: string;
 }
 
@@ -37,8 +33,8 @@ export default function Home() {
   const [palette, setPalette] = useState<'any' | 'monochrome' | 'warm' | 'cool' | 'complementary' | 'analogous' | 'earth' | 'pastel' | 'neon' | 'black_white'>('any');
   const [shape, setShape] = useState<'any' | 'circle' | 'square' | 'roundedSquare' | 'pill' | 'hex' | 'shield'>('any');
   const [value, setValue] = useState<'hybrid' | 'filled' | 'outlined'>('hybrid');
-  const [industry, setIndustry] = useState<'general' | 'healthcare' | 'therapy' | 'fitness' | 'tech' | 'finance' | 'education' | 'hospitality'>('general');
-  const [svgFidelity, setSvgFidelity] = useState<'flat' | 'shaded' | 'max'>('shaded');
+  const [fontFamily, setFontFamily] = useState<'Inter' | 'Lora' | 'Larken'>('Inter');
+  const [businessName, setBusinessName] = useState('');
   const [currentLogo, setCurrentLogo] = useState<CurrentLogo | null>(null);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,14 +42,24 @@ export default function Home() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState<'Idle' | 'Generating icon' | 'Checking background' | 'Checking text' | 'Vectorizing' | 'Done'>('Idle');
-  const [showDebug, setShowDebug] = useState(false);
   const [svg, setSvg] = useState<string | null>(null);
   const [svgUrl, setSvgUrl] = useState<string | null>(null);
+  const [lockupSvg, setLockupSvg] = useState<string | null>(null);
+  const [lockupSvgUrl, setLockupSvgUrl] = useState<string | null>(null);
+  const [lockupHorizontalSvg, setLockupHorizontalSvg] = useState<string | null>(null);
+  const [lockupHorizontalSvgUrl, setLockupHorizontalSvgUrl] = useState<string | null>(null);
+  const [lockupStackedSvg, setLockupStackedSvg] = useState<string | null>(null);
+  const [lockupStackedSvgUrl, setLockupStackedSvgUrl] = useState<string | null>(null);
   const [pngBase64, setPngBase64] = useState<string | null>(null);
   const [meta, setMeta] = useState<any | null>(null);
   const [rawJson, setRawJson] = useState<any | null>(null);
   const [svgLen, setSvgLen] = useState<number>(0);
   const [svgImgFailed, setSvgImgFailed] = useState<boolean>(false);
+  const [lockupImgFailed, setLockupImgFailed] = useState<boolean>(false);
+  const [previewTab, setPreviewTab] = useState<'icon' | 'lockup'>('icon');
+  const [lockupVariant, setLockupVariant] = useState<'horizontal' | 'stacked'>('horizontal');
+  const [showLockupDebug, setShowLockupDebug] = useState<boolean>(false);
+  const [lockupDebug, setLockupDebug] = useState<any | null>(null);
 
   // Load gallery from localStorage on mount
   useEffect(() => {
@@ -113,6 +119,82 @@ export default function Home() {
     }
   }, [svg]);
 
+  // Create Blob URL for horizontal lockup SVG and cleanup on change
+  useEffect(() => {
+    if (!lockupHorizontalSvg) {
+      setLockupHorizontalSvgUrl(null);
+      return;
+    }
+    const fullSvg = typeof lockupHorizontalSvg === 'string' ? lockupHorizontalSvg : '';
+    if (!fullSvg) {
+      setLockupHorizontalSvgUrl(null);
+      return;
+    }
+    
+    try {
+      const blob = new Blob([fullSvg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      setLockupHorizontalSvgUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to create Blob URL for horizontal lockup SVG:', err);
+      setLockupHorizontalSvgUrl(null);
+    }
+  }, [lockupHorizontalSvg]);
+
+  // Create Blob URL for stacked lockup SVG and cleanup on change
+  useEffect(() => {
+    if (!lockupStackedSvg) {
+      setLockupStackedSvgUrl(null);
+      return;
+    }
+    const fullSvg = typeof lockupStackedSvg === 'string' ? lockupStackedSvg : '';
+    if (!fullSvg) {
+      setLockupStackedSvgUrl(null);
+      return;
+    }
+    
+    try {
+      const blob = new Blob([fullSvg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      setLockupStackedSvgUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to create Blob URL for stacked lockup SVG:', err);
+      setLockupStackedSvgUrl(null);
+    }
+  }, [lockupStackedSvg]);
+
+  // Create Blob URL for lockup SVG (backward compatibility) and cleanup on change
+  useEffect(() => {
+    if (!lockupSvg) {
+      setLockupSvgUrl(null);
+      setLockupImgFailed(false);
+      return;
+    }
+    // Ensure we have the full SVG string
+    const fullLockupSvg = typeof lockupSvg === 'string' ? lockupSvg : '';
+    if (!fullLockupSvg) {
+      setLockupSvgUrl(null);
+      setLockupImgFailed(false);
+      return;
+    }
+    
+    // Reset img failed flag when lockup SVG changes
+    setLockupImgFailed(false);
+    
+    try {
+      const blob = new Blob([fullLockupSvg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      setLockupSvgUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to create Blob URL for lockup SVG:', err);
+      setLockupSvgUrl(null);
+      setLockupImgFailed(true);
+    }
+  }, [lockupSvg]);
+
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       setError('Please enter a prompt');
@@ -123,13 +205,22 @@ export default function Home() {
     setError(null);
     setCurrentLogo(null);
     setSaveMessage(null);
-    setSvg(null);
-    setSvgUrl(null);
-    setPngBase64(null);
-    setMeta(null);
-    setRawJson(null);
-    setSvgLen(0);
-    setSvgImgFailed(false);
+        setSvg(null);
+        setSvgUrl(null);
+        setLockupSvg(null);
+        setLockupSvgUrl(null);
+        setLockupHorizontalSvg(null);
+        setLockupHorizontalSvgUrl(null);
+        setLockupStackedSvg(null);
+        setLockupStackedSvgUrl(null);
+        setPngBase64(null);
+        setMeta(null);
+        setRawJson(null);
+        setSvgLen(0);
+        setSvgImgFailed(false);
+        setLockupImgFailed(false);
+        setPreviewTab('icon');
+        setLockupVariant('horizontal');
     setError(null);
     setProgress(10);
     setStage('Generating icon');
@@ -153,7 +244,18 @@ export default function Home() {
       // Collect existing gallery SVGs for similarity screening
       const gallerySvgs = gallery.map(item => item.svg);
 
-      console.log('UI sending request with prompt:', prompt, 'length:', prompt.length);
+      const payload = {
+        prompt,
+        style,
+        palette,
+        shape,
+        value,
+        businessName: businessName.trim() || undefined,
+        fontFamily,
+        gallerySvgs,
+      };
+      
+      console.log("GENERATE PAYLOAD", payload);
 
       // Call generate-svg API with format=json
       const response = await fetch(`/api/generate-svg?format=json`, {
@@ -161,16 +263,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          prompt,
-          style,
-          palette,
-          shape,
-          value,
-          industry,
-          svgFidelity,
-          gallerySvgs,
-        }),
+        body: JSON.stringify(payload),
       });
 
       // Stop progress animation
@@ -213,18 +306,40 @@ export default function Home() {
         setError(errorMsg);
         setSvg(null);
         setSvgUrl(null);
+        setLockupSvg(null);
+        setLockupSvgUrl(null);
+        setLockupHorizontalSvg(null);
+        setLockupHorizontalSvgUrl(null);
+        setLockupStackedSvg(null);
+        setLockupStackedSvgUrl(null);
         setPngBase64(null);
         setMeta(null);
         setSvgLen(0);
+        setLockupImgFailed(false);
+        setLockupVariant('horizontal');
         throw new Error(errorMsg);
       }
 
       // Store FULL SVG and PNG base64 with type checking
       const fullSvg = typeof data.svg === 'string' ? data.svg : null;
+      const fullLockupSvg = typeof data.lockupSvg === 'string' ? data.lockupSvg : null;
+      const fullLockupHorizontalSvg = typeof data.lockupHorizontalSvg === 'string' ? data.lockupHorizontalSvg : null;
+      const fullLockupStackedSvg = typeof data.lockupStackedSvg === 'string' ? data.lockupStackedSvg : null;
       const fullPngBase64 = typeof data.pngBase64 === 'string' ? data.pngBase64 : null;
       
       setSvg(fullSvg);
+      setLockupSvg(fullLockupSvg);
+      setLockupHorizontalSvg(fullLockupHorizontalSvg);
+      setLockupStackedSvg(fullLockupStackedSvg);
       setPngBase64(fullPngBase64);
+      
+      // Switch to lockup tab if lockup exists, otherwise stay on icon
+      if (fullLockupHorizontalSvg || fullLockupStackedSvg) {
+        setPreviewTab('lockup');
+        setLockupVariant('horizontal'); // Default to horizontal
+      } else {
+        setPreviewTab('icon');
+      }
       
       if (data.meta) {
         setMeta(data.meta);
@@ -243,7 +358,6 @@ export default function Home() {
         style: style,
         palette,
         shape: data.meta?.shape || shape,
-        industry: data.meta?.industry || industry,
         value: data.meta?.value || value,
         createdAt: new Date().toISOString(),
       };
@@ -266,9 +380,18 @@ export default function Home() {
       setProgress(0);
       setSvg(null);
       setSvgUrl(null);
-      setPngBase64(null);
-      setMeta(null);
-      setSvgLen(0);
+        setLockupSvg(null);
+        setLockupSvgUrl(null);
+        setLockupHorizontalSvg(null);
+        setLockupHorizontalSvgUrl(null);
+        setLockupStackedSvg(null);
+        setLockupStackedSvgUrl(null);
+        setPngBase64(null);
+        setMeta(null);
+        setSvgLen(0);
+        setLockupImgFailed(false);
+        setPreviewTab('icon');
+        setLockupVariant('horizontal');
     } finally {
       setLoading(false);
     }
@@ -283,6 +406,19 @@ export default function Home() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'logo.svg';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadLockup = (variant: 'horizontal' | 'stacked') => {
+    const svgToDownload = variant === 'horizontal' ? lockupHorizontalSvg : lockupStackedSvg;
+    if (!svgToDownload) return;
+
+    const blob = new Blob([svgToDownload], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `logo-lockup-${variant}.svg`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -368,8 +504,25 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Style, Palette, Shape, Value, Industry, and SVG Fidelity Controls */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+          {/* Business Name Input */}
+          <div className="mb-6">
+            <label htmlFor="business-name-input" className="block text-sm font-medium text-neutral-700 mb-2">
+              Business Name (optional)
+            </label>
+            <input
+              id="business-name-input"
+              type="text"
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="e.g., Acme Corp"
+              className="w-full px-4 py-3.5 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed"
+              disabled={loading}
+            />
+          </div>
+
+              {/* Style, Palette, Shape, Value, Font Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
             <div>
               <label htmlFor="style-select" className="block text-sm font-medium text-neutral-700 mb-2">
                 Style
@@ -446,44 +599,22 @@ export default function Home() {
               </select>
             </div>
             <div>
-              <label htmlFor="industry-select" className="block text-sm font-medium text-neutral-700 mb-2">
-                Industry
+              <label htmlFor="font-select" className="block text-sm font-medium text-neutral-700 mb-2">
+                Font
               </label>
               <select
-                id="industry-select"
-                value={industry}
-                onChange={(e) => setIndustry(e.target.value as 'general' | 'healthcare' | 'therapy' | 'fitness' | 'tech' | 'finance' | 'education' | 'hospitality')}
+                id="font-select"
+                value={fontFamily}
+                onChange={(e) => setFontFamily(e.target.value as 'Inter' | 'Lora' | 'Larken')}
                 disabled={loading}
                 className="w-full px-4 py-3 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed bg-white"
               >
-                <option value="general">General</option>
-                <option value="healthcare">Healthcare</option>
-                <option value="therapy">Therapy</option>
-                <option value="fitness">Fitness</option>
-                <option value="tech">Tech</option>
-                <option value="finance">Finance</option>
-                <option value="education">Education</option>
-                <option value="hospitality">Hospitality</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="svg-fidelity-select" className="block text-sm font-medium text-neutral-700 mb-2">
-                SVG Color Fidelity
-              </label>
-              <select
-                id="svg-fidelity-select"
-                value={svgFidelity}
-                onChange={(e) => setSvgFidelity(e.target.value as 'flat' | 'shaded' | 'max')}
-                disabled={loading}
-                className="w-full px-4 py-3 text-base border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all disabled:bg-neutral-50 disabled:cursor-not-allowed bg-white"
-              >
-                <option value="flat">Flat</option>
-                <option value="shaded">Shaded</option>
-                <option value="max">Max</option>
+                <option value="Inter">Inter</option>
+                <option value="Lora">Lora</option>
+                <option value="Larken">Larken</option>
               </select>
             </div>
           </div>
-
 
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -562,68 +693,280 @@ export default function Home() {
 
         {/* Preview Card */}
         <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 sm:p-10 mb-6">
-          <h2 className="text-lg font-semibold text-neutral-900 mb-4">Preview</h2>
-          <div className="bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl p-8 sm:p-12 flex items-center justify-center">
-            {svgUrl && !svgImgFailed ? (
-              <div
-                className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
-                style={{ background: '#fff' }}
-              >
-                <img 
-                  src={svgUrl} 
-                  alt="Generated SVG" 
-                  className="w-full h-auto"
-                  onError={(e) => {
-                    console.error('SVG image failed to load', e);
-                    setSvgImgFailed(true);
-                  }}
-                />
-              </div>
-            ) : svg && svgImgFailed ? (
-              <div
-                className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
-                style={{ background: '#fff' }}
-              >
-                <div 
-                  className="w-full h-full"
-                  dangerouslySetInnerHTML={{ __html: svg }}
-                />
-              </div>
-            ) : svg && svgLen > 0 ? (
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  SVG present ({svgLen} chars) but preview failed — likely invalid SVG markup.
-                </p>
-              </div>
-            ) : pngBase64 ? (
-              <div
-                className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
-                style={{ background: '#fff' }}
-              >
-                <img 
-                  src={`data:image/png;base64,${pngBase64}`} 
-                  alt="Generated PNG" 
-                  className="w-full h-auto"
-                />
-              </div>
-            ) : (
-              <div className="text-center">
-                <svg
-                  className="mx-auto h-12 w-12 text-neutral-400 mb-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-neutral-900">Preview</h2>
+            {lockupSvg && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPreviewTab('icon')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    previewTab === 'icon'
+                      ? 'bg-neutral-900 text-white'
+                      : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                  }`}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                  />
-                </svg>
-                <p className="text-neutral-500 text-sm">No preview yet</p>
+                  Icon
+                </button>
+                <button
+                  onClick={() => setPreviewTab('lockup')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    previewTab === 'lockup'
+                      ? 'bg-neutral-900 text-white'
+                      : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                  }`}
+                >
+                  Lockup
+                </button>
               </div>
+            )}
+          </div>
+          <div className="bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl p-8 sm:p-12 flex items-center justify-center">
+            {previewTab === 'icon' ? (
+              // Icon Preview
+              svgUrl && !svgImgFailed ? (
+                <div
+                  className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
+                  style={{ background: '#fff' }}
+                >
+                  <img 
+                    src={svgUrl} 
+                    alt="Generated SVG" 
+                    className="w-full h-auto"
+                    onError={(e) => {
+                      console.error('SVG image failed to load', e);
+                      setSvgImgFailed(true);
+                    }}
+                  />
+                </div>
+              ) : svg && svgImgFailed ? (
+                <div
+                  className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
+                  style={{ background: '#fff' }}
+                >
+                  <div 
+                    className="w-full h-full"
+                    dangerouslySetInnerHTML={{ __html: svg }}
+                  />
+                </div>
+              ) : svg && svgLen > 0 ? (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    SVG present ({svgLen} chars) but preview failed — likely invalid SVG markup.
+                  </p>
+                </div>
+              ) : pngBase64 ? (
+                <div
+                  className="svgCanvas relative overflow-hidden rounded-xl bg-white border border-neutral-200 w-full max-w-[420px] aspect-square flex items-center justify-center"
+                  style={{ background: '#fff' }}
+                >
+                  <img 
+                    src={`data:image/png;base64,${pngBase64}`} 
+                    alt="Generated PNG" 
+                    className="w-full h-auto"
+                  />
+                </div>
+              ) : (
+                <div className="text-center">
+                  <svg
+                    className="mx-auto h-12 w-12 text-neutral-400 mb-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                  <p className="text-neutral-500 text-sm">No preview yet</p>
+                </div>
+              )
+            ) : (
+              // Lockup Preview
+              (lockupHorizontalSvg || lockupStackedSvg) ? (
+                <div className="w-full space-y-4">
+                  {/* Variant Toggle */}
+                  <div className="flex justify-center gap-2">
+                    <button
+                      onClick={() => setLockupVariant('horizontal')}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        lockupVariant === 'horizontal'
+                          ? 'bg-neutral-900 text-white'
+                          : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                      }`}
+                    >
+                      Horizontal
+                    </button>
+                    <button
+                      onClick={() => setLockupVariant('stacked')}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        lockupVariant === 'stacked'
+                          ? 'bg-neutral-900 text-white'
+                          : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                      }`}
+                    >
+                      Stacked
+                    </button>
+                  </div>
+                  
+                  {/* Lockup Preview */}
+                  {lockupVariant === 'horizontal' ? (
+                    lockupHorizontalSvgUrl ? (
+                      <div
+                        className="svgCanvas relative rounded-xl bg-white border-2 border-blue-500 w-full max-w-[800px] mx-auto flex items-center justify-center"
+                        style={{ background: '#fff', overflow: 'visible' }}
+                      >
+                        <img 
+                          src={lockupHorizontalSvgUrl} 
+                          alt="Horizontal Lockup SVG" 
+                          style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
+                        />
+                      </div>
+                    ) : lockupHorizontalSvg ? (
+                      <div
+                        className="svgCanvas relative rounded-xl bg-white border-2 border-blue-500 w-full max-w-[800px] mx-auto flex items-center justify-center"
+                        style={{ background: '#fff', overflow: 'visible' }}
+                      >
+                        <div 
+                          style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
+                          dangerouslySetInnerHTML={{ __html: lockupHorizontalSvg }}
+                        />
+                      </div>
+                    ) : null
+                  ) : (
+                    lockupStackedSvgUrl ? (
+                      <div
+                        className="svgCanvas relative rounded-xl bg-white border-2 border-blue-500 w-full max-w-[600px] mx-auto flex items-center justify-center"
+                        style={{ background: '#fff', overflow: 'visible' }}
+                      >
+                        <img 
+                          src={lockupStackedSvgUrl} 
+                          alt="Stacked Lockup SVG" 
+                          style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
+                        />
+                      </div>
+                    ) : lockupStackedSvg ? (
+                      <div
+                        className="svgCanvas relative rounded-xl bg-white border-2 border-blue-500 w-full max-w-[600px] mx-auto flex items-center justify-center"
+                        style={{ background: '#fff', overflow: 'visible' }}
+                      >
+                        <div 
+                          style={{ width: '100%', height: 'auto', overflow: 'visible', display: 'block' }}
+                          dangerouslySetInnerHTML={{ __html: lockupStackedSvg }}
+                        />
+                      </div>
+                    ) : null
+                  )}
+                </div>
+              ) : (
+                <div className="text-center">
+                  <svg
+                    className="mx-auto h-12 w-12 text-neutral-400 mb-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                  <p className="text-neutral-500 text-sm">No lockup preview available</p>
+                </div>
+              )
+            )}
+          </div>
+          
+          {/* Debug Panel */}
+          {(lockupHorizontalSvg || lockupStackedSvg) && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setShowLockupDebug(v => !v);
+                }}
+                className="px-3 py-1.5 text-xs font-medium text-neutral-600 hover:text-neutral-900 border border-neutral-300 rounded-lg hover:bg-neutral-50 transition-colors"
+              >
+                {showLockupDebug ? 'Hide' : 'Show'} debug
+              </button>
+              {showLockupDebug && (
+                <div className="mt-4 p-4 bg-neutral-50 border-2 border-red-500 rounded-lg text-sm">
+                  <h3 className="text-2xl font-bold text-red-600 mb-4">DEBUG ENABLED</h3>
+                  <div className="mb-3 space-y-2">
+                    <div>
+                      <strong>businessName:</strong> {businessName || '(empty)'}
+                    </div>
+                    <div>
+                      <strong>selectedFontFamily:</strong> {fontFamily}
+                    </div>
+                    <div>
+                      <strong>Rendering SVG field:</strong> lockup{lockupVariant === 'horizontal' ? 'Horizontal' : 'Stacked'}Svg
+                    </div>
+                    <div>
+                      <strong>Available SVGs:</strong>
+                      <ul className="ml-4 list-disc">
+                        <li>iconSvg: {svg ? '✓ present' : '✗ null'}</li>
+                        <li>lockupSvg: {lockupSvg ? '✓ present' : '✗ null'}</li>
+                        <li>lockupHorizontalSvg: {lockupHorizontalSvg ? '✓ present' : '✗ null'}</li>
+                        <li>lockupStackedSvg: {lockupStackedSvg ? '✓ present' : '✗ null'}</li>
+                      </ul>
+                    </div>
+                  </div>
+                  {lockupDebug && (
+                    <div className="mb-3">
+                      <strong>Debug Data:</strong>
+                      <pre className="mt-2 p-2 bg-white border border-neutral-200 rounded text-xs overflow-auto max-h-64">
+                        {JSON.stringify(lockupDebug, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  <div>
+                    <strong>SVG Preview (first 500 chars):</strong>
+                    <textarea
+                      readOnly
+                      value={(lockupVariant === 'horizontal' ? lockupHorizontalSvg : lockupStackedSvg)?.substring(0, 500) || ''}
+                      className="mt-2 w-full p-2 bg-white border border-neutral-200 rounded text-xs font-mono"
+                      rows={8}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Download Buttons */}
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={() => handleDownload()}
+              disabled={!currentLogo || loading}
+              className="flex-1 sm:flex-none px-4 py-2 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Download Icon SVG
+            </button>
+            {lockupHorizontalSvg && (
+              <button
+                onClick={() => handleDownloadLockup('horizontal')}
+                disabled={loading}
+                className="flex-1 sm:flex-none px-4 py-2 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Download Horizontal Lockup
+              </button>
+            )}
+            {lockupStackedSvg && (
+              <button
+                onClick={() => handleDownloadLockup('stacked')}
+                disabled={loading}
+                className="flex-1 sm:flex-none px-4 py-2 bg-white text-neutral-700 font-medium border border-neutral-300 rounded-lg hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Download Stacked Lockup
+              </button>
             )}
           </div>
           
@@ -771,12 +1114,6 @@ export default function Home() {
                         <>
                           <span>•</span>
                           <span className="capitalize">{item.shape}</span>
-                        </>
-                      )}
-                      {item.industry && item.industry !== 'general' && (
-                        <>
-                          <span>•</span>
-                          <span className="capitalize">{item.industry}</span>
                         </>
                       )}
                     </div>
