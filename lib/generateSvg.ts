@@ -211,7 +211,8 @@ function buildImagePrompt(
     if (shape === 'circle') {
       imagePrompt += `Outer silhouette is a perfect circle (roundel), solid filled circle background. `;
     } else if (shape === 'square') {
-      imagePrompt += `Outer silhouette is a perfect square, solid filled square background. `;
+      imagePrompt += `Outer silhouette is a perfect square with equal width and height (1:1 aspect ratio), solid filled square background. `;
+      imagePrompt += `The square must maintain perfect square proportions - width equals height exactly. `;
     } else if (shape === 'roundedSquare') {
       imagePrompt += `Outer silhouette is rounded square with ~20–25% corner radius, solid filled background. `;
     } else if (shape === 'hex') {
@@ -319,7 +320,7 @@ export async function generatePngFromPrompt(
   const parsedPrompt = parsePrompt(prompt);
 
   // Ensure paletteChoice is valid
-  const validPaletteChoices = ['any', 'monochrome', 'warm', 'cool', 'complementary', 'analogous', 'earth', 'pastel', 'neon', 'black_white'];
+  const validPaletteChoices = ['any', 'monochrome', 'warm', 'cool', 'neutral', 'complementary', 'analogous', 'earth', 'pastel', 'bold', 'neon', 'black_white'];
   if (!paletteChoice || !validPaletteChoices.includes(paletteChoice)) {
     throw new Error(`Invalid paletteChoice: ${paletteChoice}`);
   }
@@ -476,7 +477,7 @@ export async function generateSvgFromPrompt(
   const parsedPrompt = parsePrompt(prompt);
 
   // Ensure paletteChoice is valid
-  const validPaletteChoices = ['any', 'monochrome', 'warm', 'cool', 'complementary', 'analogous', 'earth', 'pastel', 'neon', 'black_white'];
+  const validPaletteChoices = ['any', 'monochrome', 'warm', 'cool', 'neutral', 'complementary', 'analogous', 'earth', 'pastel', 'bold', 'neon', 'black_white'];
   if (!paletteChoice || !validPaletteChoices.includes(paletteChoice)) {
     throw new Error(`Invalid paletteChoice: ${paletteChoice}`);
   }
